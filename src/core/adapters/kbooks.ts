@@ -1,5 +1,5 @@
 import { httpFetch } from '../http.js';
-import { norm } from '../keywords.js';
+import { norm, SEIYUU_SWEEP } from '../keywords.js';
 import type { Adapter, RawItem, SearchPage } from '../types.js';
 
 const API = 'https://shop.api.groobee.com/products/search';
@@ -69,7 +69,8 @@ export const kbooks: Adapter = {
   minInterval: 2500,
 
   sweepKeywords() {
-    return ['BanG Dream'];
+    // 泛用詞（バンドリ等）在這裡搜不到，正式品名以 BanG Dream 起頭；聲優個人周邊則直接以人名收錄
+    return ['BanG Dream', ...SEIYUU_SWEEP];
   },
 
   async search(keyword: string, page: number): Promise<SearchPage> {

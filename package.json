@@ -1,7 +1,7 @@
 {
   "name": "bandori-hunter",
   "version": "1.0.0",
-  "description": "BanG Dream! 中古情報聚合 — らしんばん / K-BOOKS / HardOff·HobbyOff / BookOff / メルカリ",
+  "description": "BanG Dream! 中古情報聚合 — 駿河屋(Yahoo!店) / らしんばん / K-BOOKS / HardOff·HobbyOff / BookOff / メルカリ",
   "type": "module",
   "scripts": {
     "cli": "tsx src/cli/index.ts",

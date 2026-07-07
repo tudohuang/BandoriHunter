@@ -13,7 +13,10 @@ export const db = (() => {
   const url = process.env.TURSO_DATABASE_URL;
   if (url) return createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
   fs.mkdirSync(path.join(ROOT, 'data'), { recursive: true });
-  return createClient({ url: 'file:' + path.join(ROOT, 'data', 'bandori.db').replace(/\\/g, '/') });
+  const client = createClient({ url: 'file:' + path.join(ROOT, 'data', 'bandori.db').replace(/\\/g, '/') });
+  // serve 的排程掃站與手動 crawl 可能同時寫本機檔：等鎖而不是立刻 SQLITE_BUSY
+  void client.execute('PRAGMA busy_timeout = 60000').catch(() => {});
+  return client;
 })();
 
 const DDL = [

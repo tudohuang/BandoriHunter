@@ -12,6 +12,7 @@ export const hardoff: Adapter = {
   async search(keyword: string, page: number): Promise<SearchPage> {
     const url = `${BASE}/search/?q=${encodeURIComponent(keyword)}${page > 1 ? `&p=${page}` : ''}`;
     const { status, text } = await httpFetch(url, { referer: BASE + '/', minInterval: this.minInterval });
+    if (status === 404) return { items: [], total: 0, hasNext: false }; // 0 結果會回 404
     if (status !== 200) throw new Error(`hardoff: HTTP ${status}`);
     const $ = cheerio.load(text);
 

@@ -3,7 +3,9 @@ import { getMeta } from './db.js';
 import type { ItemRow } from './types.js';
 import { SOURCE_NAMES } from './types.js';
 
-const SOURCE_COLORS: Record<string, number> = {  lashinbang: 0xe94f8a,
+const SOURCE_COLORS: Record<string, number> = {
+  surugaya: 0x1971c2,
+  lashinbang: 0xe94f8a,
   hardoff: 0x1db34f,
   bookoff: 0xf5a623,
   kbooks: 0x8e44ad,

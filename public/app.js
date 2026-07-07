@@ -1,14 +1,18 @@
 /* Bandori Hunter frontend */
 'use strict';
 
-const SRC_COLORS = {  lashinbang: 'var(--c-lashinbang)',
+const SRC_COLORS = {
+  surugaya: 'var(--c-surugaya)',
+  lashinbang: 'var(--c-lashinbang)',
   hardoff: 'var(--c-hardoff)',
   bookoff: 'var(--c-bookoff)',
   kbooks: 'var(--c-kbooks)',
   mercari: 'var(--c-mercari)',
 };
-const SRC_SHORT = { lashinbang: 'らしんばん', hardoff: 'HARD OFF', bookoff: 'BOOKOFF', kbooks: 'K-BOOKS', mercari: 'メルカリ' };
+const SRC_SHORT = { surugaya: '駿河屋', lashinbang: 'らしんばん', hardoff: 'HARD OFF', bookoff: 'BOOKOFF', kbooks: 'K-BOOKS', mercari: 'メルカリ' };
 const BAND_TAGS = ["Poppin'Party", 'Roselia', 'Afterglow', 'Pastel*Palettes', 'ハロー、ハッピーワールド！', 'RAISE A SUILEN', 'Morfonica', 'MyGO!!!!!', 'Ave Mujica'];
+// 與 src/core/keywords.ts 的 SEIYUU 同步
+const SEIYUU_TAGS = ['愛美', '大塚紗英', '西本りみ', '大橋彩香', '伊藤彩沙', '佐倉綾音', '三澤紗千香', '加藤英美里', '日笠陽子', '金元寿子', '前島亜美', '小澤亜李', '上坂すみれ', '中上育実', '秦佐和子', '相羽あいな', '工藤晴香', '中島由貴', '櫻川めぐ', '志崎樺音', '遠藤ゆりか', '明坂聡美', '伊藤美来', '田所あずさ', '吉田有里', '豊田萌絵', '黒沢ともよ', 'Raychell', '小原莉子', '夏芽', '紡木吏佐', '倉知玲鳳', '進藤あまね', '直田姫奈', '西尾夕香', 'mika', 'Ayasa', '羊宮妃那', '立石凛', '青木陽菜', '小日向美香', '林鼓子', '佐々木李子', '渡瀬結月', '米澤茜', '岡田夢以', '高尾奏音'];
 
 const state = {
   tab: 'browse',
@@ -198,21 +202,26 @@ async function loadFacets() {
     cc.appendChild(chip);
   }
   const tc = $('tagChips');
+  const sc = $('seiyuuChips');
   tc.replaceChildren();
+  sc.replaceChildren();
   const tags = Object.entries(state.facets.tags).sort((a, b) => b[1] - a[1]);
   const bands = tags.filter(([t]) => BAND_TAGS.includes(t));
-  const chars = tags.filter(([t]) => !BAND_TAGS.includes(t)).slice(0, 18);
-  for (const [tag, n] of [...bands, ...chars]) {
+  const seiyuu = tags.filter(([t]) => SEIYUU_TAGS.includes(t)).slice(0, 18);
+  const chars = tags.filter(([t]) => !BAND_TAGS.includes(t) && !SEIYUU_TAGS.includes(t)).slice(0, 18);
+  const addChip = (container, tag, n) => {
     const chip = el('button', 'chip' + (state.tag === tag ? ' on' : ''));
     chip.innerHTML = `${esc(tag)}<small>${n}</small>`;
     chip.onclick = () => {
       state.tag = state.tag === tag ? null : tag;
-      [...tc.children].forEach((c) => c.classList.remove('on'));
+      [...tc.children, ...sc.children].forEach((c) => c.classList.remove('on'));
       if (state.tag) chip.classList.add('on');
       loadItems(true);
     };
-    tc.appendChild(chip);
-  }
+    container.appendChild(chip);
+  };
+  for (const [tag, n] of [...bands, ...chars]) addChip(tc, tag, n);
+  for (const [tag, n] of seiyuu) addChip(sc, tag, n);
 }
 
 async function loadStats() {

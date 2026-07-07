@@ -1,11 +1,11 @@
-/** BanG Dream! 詞庫：作品、樂團、角色。用於掃站關鍵字、相關性過濾與標籤。 */
+/** BanG Dream! 詞庫：作品、樂團、角色、聲優。用於掃站關鍵字、相關性過濾與標籤。 */
 
 export function norm(s: string): string {
   return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** 預設掃站關鍵字（各站爬蟲輪詢用） */
-export const DEFAULT_SWEEP = [
+/** 作品／樂團掃站關鍵字（完整清單 DEFAULT_SWEEP 在檔尾，含聲優） */
+const FRANCHISE_SWEEP = [
   'バンドリ',
   'BanG Dream',
   'ガルパ',
@@ -59,6 +59,52 @@ export const CHARACTERS: TagDef[] = CHAR_DATA.split(';').map((entry) => {
   return { tag, patterns };
 });
 
+/**
+ * 人名比對用：字串頭尾是漢字時加「非漢字邊界」（鈴木愛美 ≠ 愛美）；純英數名加 \b（MIKAsa ≠ mika）。
+ * 比對目標是 norm() 過的文字，所以先 normalize 再造 regex。
+ */
+function nameRx(name: string): RegExp {
+  const n = norm(name);
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (/^[\x00-\x7f]+$/.test(n)) return new RegExp(`\\b${esc}\\b`);
+  const kanji = '\\u4e00-\\u9fff\\u3005'; // 3005=々
+  const pre = new RegExp(`^[${kanji}]`).test(n) ? `(?<![${kanji}])` : '';
+  const post = new RegExp(`[${kanji}]$`).test(n) ? `(?![${kanji}])` : '';
+  return new RegExp(pre + esc + post);
+}
+
+/**
+ * 聲優表（格式同 CHAR_DATA：`;` 分隔、`|` 分隔別名，首項=藝名/本名）。
+ * 前綴 `!` = 僅作標籤：不掃站、不獨立判相關 —— 多作品大牌（佐倉綾音、上坂すみれ…）或
+ * 名字太通用（mika），直接掃會把大量非邦邦商品灌進庫；要追蹤誰就把 `!` 拿掉。
+ * 真實樂團編制（PPP/Roselia/RAS/Morfonica/MyGO/Ave Mujica）的成員個人周邊視同邦邦周邊。
+ */
+const SEIYUU_DATA =
+  '愛美|~aimi;大塚紗英;西本りみ;大橋彩香;伊藤彩沙;' + // Poppin'Party
+  '!佐倉綾音;!三澤紗千香;!加藤英美里;!日笠陽子;!金元寿子;' + // Afterglow
+  '!前島亜美;!小澤亜李;!上坂すみれ;!中上育実;!秦佐和子;' + // Pastel*Palettes
+  '相羽あいな;工藤晴香;中島由貴;櫻川めぐ;志崎樺音;!遠藤ゆりか;!明坂聡美;' + // Roselia（含前任）
+  '!伊藤美来;!田所あずさ;!吉田有里;!豊田萌絵;!黒沢ともよ;' + // ハロハピ
+  'Raychell;小原莉子;夏芽;紡木吏佐;倉知玲鳳;' + // RAS
+  '進藤あまね;直田姫奈;西尾夕香;!mika;Ayasa;' + // Morfonica
+  '羊宮妃那;立石凛;青木陽菜;小日向美香;林鼓子;' + // MyGO!!!!!
+  '佐々木李子;渡瀬結月;米澤茜;岡田夢以;高尾奏音'; // Ave Mujica
+
+export const SEIYUU: (TagDef & { sweep: boolean })[] = SEIYUU_DATA.split(';').map((entry) => {
+  const sweep = !entry.startsWith('!');
+  const [name, ...alts] = (sweep ? entry : entry.slice(1)).split('|');
+  const patterns: (RegExp | string)[] = [
+    nameRx(name),
+    ...alts.map((p) => (p.startsWith('~') ? new RegExp(`\\b${p.slice(1)}\\b`) : p)),
+  ];
+  return { tag: name, patterns, sweep };
+});
+
+export const SEIYUU_SWEEP = SEIYUU.filter((s) => s.sweep).map((s) => s.tag);
+
+/** 預設掃站關鍵字（各站爬蟲輪詢用）：作品/樂團 + 可掃聲優 */
+export const DEFAULT_SWEEP = [...FRANCHISE_SWEEP, ...SEIYUU_SWEEP];
+
 /** 作品本體判定（相關性核心）。注意排除 バンドリエール(LV包)、ガルパン(戰車) 等偽命中。 */
 const FRANCHISE_RX: RegExp[] = [
   /バンドリ(?!エール|ング|ムーバ|ル)/,
@@ -81,12 +127,13 @@ function matchDef(text: string, def: TagDef): boolean {
   return false;
 }
 
-/** 回傳命中的樂團/角色標籤 */
+/** 回傳命中的樂團/角色/聲優標籤 */
 export function extractTags(text: string): string[] {
   const t = norm(text);
   const tags: string[] = [];
   for (const b of BANDS) if (matchDef(t, b)) tags.push(b.tag);
   for (const c of CHARACTERS) if (matchDef(t, c)) tags.push(c.tag);
+  for (const s of SEIYUU) if (matchDef(t, s)) tags.push(s.tag);
   return tags;
 }
 
@@ -120,5 +167,7 @@ export function isRelevant(text: string): boolean {
     const first = c.patterns[0];
     if (typeof first === 'string' && norm(first).length >= 4 && t.includes(norm(first))) return true;
   }
+  // 可掃聲優的個人周邊視同相關（僅 sweep 名單；標籤用大牌名單不在此列，避免誤收非邦邦商品）
+  for (const s of SEIYUU) if (s.sweep && matchDef(t, s)) return true;
   return false;
 }
