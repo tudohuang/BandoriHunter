@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bandori Hunter — バンドリ中古商品整合</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎸</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="logo" href="./">
+      <span class="logo-mark">Bandori Hunter</span>
+      <span class="logo-sub">バンドリ中古商品整合</span>
+    </a>
+    <div class="searchwrap">
+      <input id="searchInput" type="search" placeholder="搜尋收錄商品：例如 Roselia 法被、MyGO アクスタ" autocomplete="off">
+      <button id="liveBtn" class="btn btn-primary" title="即時查詢六個網站的最新結果（約 10〜30 秒），並同步進資料庫">同步最新結果</button>
+    </div>
+    <div class="topstats" id="topStats"></div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-tab="browse">瀏覽商品</button>
+    <button class="tab" data-tab="new">新上架 <span class="tabbadge" id="newBadge"></span></button>
+    <button class="tab" data-tab="compare">快速比價</button>
+    <button class="tab" data-tab="wish">願望清單</button>
+    <button class="tab" data-tab="watch">關注通知</button>
+    <button class="tab" data-tab="system">資料與設定</button>
+    <label class="switch danmaku-switch" title="最近收錄的商品以彈幕飄過畫面，點擊可看詳情">
+      <input type="checkbox" id="danmakuToggle"><span></span>彈幕
+    </label>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <section class="fgroup">
+      <h4>來源</h4>
+      <div id="sourceFilters"></div>
+    </section>
+    <section class="fgroup">
+      <label class="switch"><input type="checkbox" id="instockOnly"><span></span>只看有貨</label>
+    </section>
+    <section class="fgroup">
+      <h4>分類</h4>
+      <div class="chips" id="categoryChips"></div>
+    </section>
+    <section class="fgroup">
+      <h4>樂團・角色</h4>
+      <div class="chips" id="tagChips"></div>
+    </section>
+    <section class="fgroup">
+      <h4>價格範圍（日圓）</h4>
+      <div class="pricerow">
+        <input id="minPrice" type="number" placeholder="下限" min="0">
+        <span>—</span>
+        <input id="maxPrice" type="number" placeholder="上限" min="0">
+      </div>
+    </section>
+    <button id="clearFilters" class="btn btn-plain wide">清除所有條件</button>
+  </aside>
+
+  <main class="main">
+    <div class="resultbar">
+      <span id="resultCount" class="resultcount"></span>
+      <span id="liveStatus" class="livestatus"></span>
+      <div class="resulttools">
+        <select id="sortSel" aria-label="排序">
+          <option value="newest">排序：最新收錄</option>
+          <option value="price_asc">排序：價格低到高</option>
+          <option value="price_desc">排序：價格高到低</option>
+          <option value="updated">排序：最近更新</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div id="sentinel" class="sentinel"></div>
+    <div id="emptyState" class="empty" hidden>
+      <p>目前沒有符合條件的商品。</p>
+      <p class="empty-hint">可以放寬篩選條件，或按右上「同步最新結果」直接查詢各網站。</p>
+    </div>
+  </main>
+</div>
+
+<!-- 快速比價分頁 -->
+<template id="compareTpl">
+  <div class="panel panel-wide">
+    <h3>快速比價</h3>
+    <p class="hint">輸入商品關鍵字，一次比較六個網站的價格。建議用具體一點的關鍵字（例如「Roselia 法被 友希那」）。</p>
+    <div class="addrow">
+      <input id="compareInput" placeholder="例：カバーコレクション Vol.1、燈 アクスタ">
+      <label class="switch"><input type="checkbox" id="compareInstock" checked><span></span>只比有貨</label>
+      <button id="compareGo" class="btn btn-primary">比價</button>
+    </div>
+    <div class="cmp-summary" id="cmpSummary"></div>
+    <div class="cmp-list" id="cmpList"></div>
+  </div>
+</template>
+
+<!-- 關注分頁 -->
+<template id="watchTpl">
+  <div class="panel">
+    <h3>關注關鍵字</h3>
+    <p class="hint">定期掃站時，若有商品名稱包含關鍵字的新品上架，會發送 Windows 桌面通知；設定 Discord webhook 後也會推播到手機。</p>
+    <div class="addrow">
+      <input id="watchInput" placeholder="例：Roselia 法被、千早愛音、MyGO タオル">
+      <button id="watchAdd" class="btn btn-primary">加入關注</button>
+    </div>
+    <ul class="watchlist" id="watchList"></ul>
+  </div>
+</template>
+
+<!-- 系統分頁 -->
+<template id="systemTpl">
+  <div class="panel">
+    <h3>資料更新</h3>
+    <div id="localCrawlSection">
+      <div class="btnrow">
+        <button id="crawlBtn" class="btn btn-primary">立即更新（增量掃站）</button>
+        <button id="crawlFullBtn" class="btn btn-plain">完整重掃（耗時較久）</button>
+      </div>
+      <pre class="crawllog" id="crawlLog"></pre>
+    </div>
+    <p class="hint" id="cloudCrawlHint" hidden>此為雲端部署：資料由 GitHub Actions 排程每小時自動更新（駿河屋僅本機版支援）。</p>
+    <div id="sgySection">
+      <h3>駿河屋驗證</h3>
+      <p class="hint">駿河屋設有 Cloudflare 人機驗證。需要查詢駿河屋時會自動開啟 Firefox 視窗：若出現挑戰頁，點一次「私はロボットではありません」即可；<b>驗證後請保持視窗開啟</b>（可縮到最小），同一個視窗存續期間即可持續靜默查詢。</p>
+    </div>
+    <h3>Discord 通知（選用）</h3>
+    <div class="addrow">
+      <input id="webhookInput" placeholder="貼上 Discord webhook URL；留空表示僅使用 Windows 通知">
+      <button id="webhookSave" class="btn btn-plain">儲存</button>
+    </div>
+    <h3>自動更新頻率</h3>
+    <div class="addrow">
+      <label>每 <input id="intervalInput" type="number" min="1" max="24" class="numinput"> 小時掃站一次（本頁服務執行期間生效）</label>
+      <button id="intervalSave" class="btn btn-plain">儲存</button>
+    </div>
+  </div>
+</template>
+
+<!-- 商品詳情 modal -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-card" id="modalCard"></div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="danmaku" id="danmaku" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

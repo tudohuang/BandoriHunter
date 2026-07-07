@@ -1,0 +1,29 @@
+{
+  "name": "bandori-hunter",
+  "version": "1.0.0",
+  "description": "BanG Dream! 中古情報聚合 — 駿河屋 / Lashinbang / K-BOOKS / HardOff·HobbyOff / BookOff",
+  "type": "module",
+  "scripts": {
+    "cli": "tsx src/cli/index.ts",
+    "serve": "tsx src/cli/index.ts serve",
+    "crawl": "tsx src/cli/index.ts crawl",
+    "auth": "tsx src/cli/index.ts auth",
+    "search": "tsx src/cli/index.ts search"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.1.0",
+    "@types/node-notifier": "^8.0.5",
+    "better-sqlite3": "^12.11.1",
+    "cheerio": "^1.2.0",
+    "commander": "^14.0.3",
+    "express": "^5.2.1",
+    "node-notifier": "^10.0.1",
+    "playwright": "^1.61.1",
+    "tsx": "^4.23.0",
+    "typescript": "^6.0.3",
+    "undici": "^7.28.0"
+  }
+}

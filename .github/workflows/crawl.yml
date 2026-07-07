@@ -1,0 +1,33 @@
+name: crawl
+
+on:
+  schedule:
+    - cron: '23 * * * *' # 每小時（UTC 分鐘 23，避開整點壅塞）
+  workflow_dispatch:
+    inputs:
+      full:
+        description: '完整重掃（翻到底）'
+        type: boolean
+        default: false
+
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Crawl all sites (except Suruga-ya)
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          NO_SURUGAYA: '1'
+        run: npx tsx src/cli/index.ts crawl ${{ inputs.full && '--full' || '' }}
