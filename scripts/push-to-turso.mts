@@ -6,34 +6,31 @@
  *   $env:TURSO_AUTH_TOKEN="eyJ..."
  *   npx tsx scripts/push-to-turso.mts
  */
-import Database from 'better-sqlite3';
 import { createClient, type InStatement } from '@libsql/client';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const url = process.env.TURSO_DATABASE_URL;
-const authToken = process.env.TURSO_AUTH_TOKEN;
 if (!url || !url.startsWith('libsql')) {
   console.error('請先設定 TURSO_DATABASE_URL（libsql://…）與 TURSO_AUTH_TOKEN');
   process.exit(1);
 }
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const local = new Database(path.join(ROOT, 'data', 'bandori.db'), { readonly: true });
-const remote = createClient({ url, authToken });
+const local = createClient({ url: 'file:' + path.join(ROOT, 'data', 'bandori.db').replace(/\\/g, '/') });
 
-// 建表（沿用 core/db.ts 的 schema）
-process.env.TURSO_DATABASE_URL = url;
-const { ready } = await import('../src/core/db.js');
+// 建表（db.ts 會讀 TURSO_DATABASE_URL 連上遠端）
+const { ready, db: remote, computeTagFacets } = await import('../src/core/db.js');
 await ready();
 
 async function pushTable(table: string, columns: string[]): Promise<void> {
-  const rows = local.prepare(`SELECT ${columns.join(',')} FROM ${table}`).all() as any[];
+  const r = await local.execute(`SELECT ${columns.join(',')} FROM ${table}`);
+  const rows = r.rows as any[];
   console.log(`${table}: ${rows.length} rows`);
   const sql = `INSERT OR REPLACE INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`;
   const BATCH = 200;
   for (let i = 0; i < rows.length; i += BATCH) {
-    const stmts: InStatement[] = rows.slice(i, i + BATCH).map((r) => ({ sql, args: columns.map((c) => r[c]) }));
+    const stmts: InStatement[] = rows.slice(i, i + BATCH).map((row) => ({ sql, args: columns.map((c) => row[c]) }));
     await remote.batch(stmts, 'write');
     process.stdout.write(`\r  ${Math.min(i + BATCH, rows.length)}/${rows.length}`);
   }
@@ -48,6 +45,5 @@ await pushTable('price_history', ['id', 'item_id', 'price', 'status', 'seen_at']
 await pushTable('watches', ['id', 'keyword', 'created_at']);
 await pushTable('meta', ['key', 'value']);
 
-const { computeTagFacets } = await import('../src/core/db.js');
 await computeTagFacets();
 console.log('✓ 完成。Turso 上的資料已就緒。');

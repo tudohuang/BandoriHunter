@@ -1,4 +1,4 @@
-import notifier from 'node-notifier';
+import { execFile } from 'node:child_process';
 import { getMeta } from './db.js';
 import type { ItemRow } from './types.js';
 import { SOURCE_NAMES } from './types.js';
@@ -12,9 +12,21 @@ const SOURCE_COLORS: Record<string, number> = {
   mercari: 0xff2d55,
 };
 
+/** Windows 原生 toast（WinRT via PowerShell），非 Windows 靜默略過 */
 export function toast(title: string, message: string): void {
+  if (process.platform !== 'win32') return;
+  const esc = (s: string) =>
+    s.replace(/[&<>"'`$]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '', "'": '’', '`': '', $: '' }[c] ?? '')).slice(0, 180);
+  const ps = `
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null
+[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime] > $null
+$x = New-Object Windows.Data.Xml.Dom.XmlDocument
+$x.LoadXml("<toast><visual><binding template='ToastGeneric'><text>${esc(title)}</text><text>${esc(message)}</text></binding></visual></toast>")
+$appid = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appid).Show((New-Object Windows.UI.Notifications.ToastNotification $x))`;
   try {
-    notifier.notify({ title, message, appID: 'Bandori Hunter' } as any);
+    execFile('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true }, () => {});
   } catch {
     // toast is best-effort
   }

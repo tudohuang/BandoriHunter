@@ -1,3 +1,3 @@
-import { buildApp } from '../src/server/app.js';
+import { buildApp } from '../src/server/index.js';
 
 export default buildApp();

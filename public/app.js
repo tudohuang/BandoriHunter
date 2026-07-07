@@ -290,9 +290,6 @@ function histSvg(history) {
   const ys = pts.map((p) => h - pad - ((p.price - min) * (h - 2 * pad)) / span);
   const line = xs.map((x, i) => `${x},${ys[i]}`).join(' ');
   return `<svg class="histchart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <defs><linearGradient id="histgrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#ff4f9a"/><stop offset="1" stop-color="#8b5cf6"/>
-    </linearGradient></defs>
     <polyline points="${line}"/>
     <text x="${pad}" y="14" fill="var(--dim)" font-size="12">最高 ${yen(max)}</text>
     <text x="${pad}" y="${h - 10}" fill="var(--dim)" font-size="12">最低 ${yen(min)}</text>

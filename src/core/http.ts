@@ -23,7 +23,9 @@ async function throttle(key: string, minInterval: number): Promise<void> {
   release();
 }
 
-export interface GetOptions {
+export interface FetchOptions {
+  method?: 'GET' | 'POST';
+  body?: string;
   referer?: string;
   headers?: Record<string, string>;
   minInterval?: number;
@@ -31,7 +33,7 @@ export interface GetOptions {
   throttleKey?: string;
 }
 
-export async function httpGet(url: string, opts: GetOptions = {}): Promise<{ status: number; text: string }> {
+export async function httpFetch(url: string, opts: FetchOptions = {}): Promise<{ status: number; text: string }> {
   const u = new URL(url);
   const key = opts.throttleKey ?? u.host;
   const minInterval = opts.minInterval ?? 2500;
@@ -42,6 +44,8 @@ export async function httpGet(url: string, opts: GetOptions = {}): Promise<{ sta
     await throttle(key, minInterval);
     try {
       const res = await fetch(url, {
+        method: opts.method ?? 'GET',
+        body: opts.body,
         headers: {
           'User-Agent': UA,
           Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',

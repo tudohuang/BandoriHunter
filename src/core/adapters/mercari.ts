@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { httpFetch } from '../http.js';
 import type { Adapter, RawItem, SearchPage } from '../types.js';
 
 const API = 'https://api.mercari.jp/v2/entities:search';
@@ -36,14 +37,9 @@ interface MercariItem {
   updated: string;
 }
 
-let lastRequest = 0;
 const MIN_INTERVAL = 2500;
 
 async function searchApi(keyword: string, pageToken: string): Promise<{ items: MercariItem[]; nextPageToken: string; numFound: number }> {
-  const wait = lastRequest + MIN_INTERVAL - Date.now();
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastRequest = Date.now();
-
   const body = {
     userId: '',
     pageSize: PAGE_SIZE,
@@ -83,25 +79,22 @@ async function searchApi(keyword: string, pageToken: string): Promise<{ items: M
     withShopname: false,
   };
 
-  const res = await fetch(API, {
+  const { status, text } = await httpFetch(API, {
     method: 'POST',
+    body: JSON.stringify(body),
+    referer: 'https://jp.mercari.com/',
+    minInterval: MIN_INTERVAL,
+    throttleKey: 'mercari',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-Platform': 'web',
       DPoP: dpopToken('POST', API),
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
       Origin: 'https://jp.mercari.com',
-      Referer: 'https://jp.mercari.com/',
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
   });
-  if (res.status !== 200) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`mercari: HTTP ${res.status} ${text.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as any;
+  if (status !== 200) throw new Error(`mercari: HTTP ${status} ${text.slice(0, 200)}`);
+  const data = JSON.parse(text) as any;
   return {
     items: data.items ?? [],
     nextPageToken: data.meta?.nextPageToken ?? '',

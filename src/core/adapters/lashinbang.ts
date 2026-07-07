@@ -1,4 +1,4 @@
-import { httpGet } from '../http.js';
+import { httpFetch } from '../http.js';
 import type { Adapter, RawItem, SearchPage } from '../types.js';
 
 const API = 'https://lashinbang-f-s.snva.jp/';
@@ -44,7 +44,7 @@ export const lashinbang: Adapter = {
       callback: 'callback',
       controller: 'lashinbang_front',
     });
-    const { status, text } = await httpGet(`${API}?${params}`, {
+    const { status, text } = await httpFetch(`${API}?${params}`, {
       referer: 'https://shop.lashinbang.com/',
       minInterval: this.minInterval,
     });

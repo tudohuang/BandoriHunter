@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { httpGet } from '../http.js';
+import { httpFetch } from '../http.js';
 import type { Adapter, RawItem, SearchPage } from '../types.js';
 
 const BASE = 'https://netmall.hardoff.co.jp';
@@ -11,7 +11,7 @@ export const hardoff: Adapter = {
 
   async search(keyword: string, page: number): Promise<SearchPage> {
     const url = `${BASE}/search/?q=${encodeURIComponent(keyword)}${page > 1 ? `&p=${page}` : ''}`;
-    const { status, text } = await httpGet(url, { referer: BASE + '/', minInterval: this.minInterval });
+    const { status, text } = await httpFetch(url, { referer: BASE + '/', minInterval: this.minInterval });
     if (status !== 200) throw new Error(`hardoff: HTTP ${status}`);
     const $ = cheerio.load(text);
 

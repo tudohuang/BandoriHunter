@@ -1,4 +1,4 @@
-import { httpGet } from '../http.js';
+import { httpFetch } from '../http.js';
 import { norm } from '../keywords.js';
 import type { Adapter, RawItem, SearchPage } from '../types.js';
 
@@ -24,7 +24,7 @@ async function query(keyword: string, page: number, perPage: number): Promise<{ 
     per_page: String(perPage),
     current_page: String(page),
   });
-  const { status, text } = await httpGet(`${API}?${params}`, {
+  const { status, text } = await httpFetch(`${API}?${params}`, {
     referer: SITE + '/',
     minInterval: 2500,
     throttleKey: 'kbooks',
