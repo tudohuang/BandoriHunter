@@ -17,7 +17,7 @@
     </a>
     <div class="searchwrap">
       <input id="searchInput" type="search" placeholder="搜尋收錄商品：例如 Roselia 法被、MyGO アクスタ" autocomplete="off">
-      <button id="liveBtn" class="btn btn-primary" title="即時查詢六個網站的最新結果（約 10〜30 秒），並同步進資料庫">同步最新結果</button>
+      <button id="liveBtn" class="btn btn-primary" title="即時查詢五個網站的最新結果（約 10〜30 秒），並同步進資料庫">同步最新結果</button>
     </div>
     <div class="topstats" id="topStats"></div>
   </div>
@@ -88,7 +88,7 @@
 <template id="compareTpl">
   <div class="panel panel-wide">
     <h3>快速比價</h3>
-    <p class="hint">輸入商品關鍵字，一次比較六個網站的價格。建議用具體一點的關鍵字（例如「Roselia 法被 友希那」）。</p>
+    <p class="hint">輸入商品關鍵字，一次比較五個網站的價格。建議用具體一點的關鍵字（例如「Roselia 法被 友希那」）。</p>
     <div class="addrow">
       <input id="compareInput" placeholder="例：カバーコレクション Vol.1、燈 アクスタ">
       <label class="switch"><input type="checkbox" id="compareInstock" checked><span></span>只比有貨</label>
@@ -123,11 +123,7 @@
       </div>
       <pre class="crawllog" id="crawlLog"></pre>
     </div>
-    <p class="hint" id="cloudCrawlHint" hidden>此為雲端部署：資料由 GitHub Actions 排程每小時自動更新（駿河屋僅本機版支援）。</p>
-    <div id="sgySection">
-      <h3>駿河屋驗證</h3>
-      <p class="hint">駿河屋設有 Cloudflare 人機驗證。需要查詢駿河屋時會自動開啟 Firefox 視窗：若出現挑戰頁，點一次「私はロボットではありません」即可；<b>驗證後請保持視窗開啟</b>（可縮到最小），同一個視窗存續期間即可持續靜默查詢。</p>
-    </div>
+    <p class="hint" id="cloudCrawlHint" hidden>此為雲端部署：資料由 GitHub Actions 排程每小時自動更新。</p>
     <h3>Discord 通知（選用）</h3>
     <div class="addrow">
       <input id="webhookInput" placeholder="貼上 Discord webhook URL；留空表示僅使用 Windows 通知">

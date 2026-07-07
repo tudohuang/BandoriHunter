@@ -1,4 +1,4 @@
-import { getAdapters, NeedsAuthError, withSurugaya } from './adapters/index.js';
+import { getAdapters } from './adapters/index.js';
 import { computeTagFacets, getItem, getMeta, listWatches, setMeta, upsertMany } from './db.js';
 import { DEFAULT_SWEEP, isRelevant, norm } from './keywords.js';
 import { notifyNewItems } from './notify.js';
@@ -26,7 +26,7 @@ async function crawlSite(
   maxPagesOpt: number | undefined,
   log: (msg: string) => void,
 ): Promise<{ report: CrawlSiteReport; newIds: number[]; baseline: boolean }> {
-  // baseline 以「站」為單位：駿河屋可能晚點才通過驗證，屆時它自己跑完整模式
+  // baseline 以「站」為單位：新加入的站第一次自動跑完整模式
   const baseline = (await getMeta(`baseline_${adapter.source}`)) !== '1';
   const full = forceFull ?? baseline;
   const maxPages = maxPagesOpt ?? (full ? 60 : 5);
@@ -34,10 +34,8 @@ async function crawlSite(
   const newIds: number[] = [];
   const kws = adapter.sweepKeywords ? adapter.sweepKeywords(keywords) : keywords;
   const seenIds = new Set<string>();
-  let authFailed = false;
 
   for (const kw of kws) {
-    if (authFailed) break;
     let page = 1;
     let staleStreak = 0;
     while (page <= maxPages) {
@@ -45,11 +43,6 @@ async function crawlSite(
       try {
         result = await adapter.search(kw, page);
       } catch (e) {
-        if (e instanceof NeedsAuthError) {
-          report.errors.push(e.message);
-          authFailed = true;
-          break; // 整站放棄，等使用者驗證（不標記 baseline 完成）
-        }
         report.errors.push(`「${kw}」p${page}: ${(e as Error).message}`);
         break;
       }
@@ -79,15 +72,14 @@ async function crawlSite(
       page++;
     }
   }
-  if (!authFailed && baseline) await setMeta(`baseline_${adapter.source}`, '1');
-  return { report, newIds, baseline: baseline && !authFailed };
+  if (baseline) await setMeta(`baseline_${adapter.source}`, '1');
+  return { report, newIds, baseline };
 }
 
 export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
   const startedAt = new Date().toISOString();
   const log = opts.onLog ?? ((m: string) => console.log(m));
   const keywords = opts.keywords?.length ? opts.keywords : DEFAULT_SWEEP;
-  await withSurugaya();
   const adapters = getAdapters(opts.sources);
 
   log(`開始掃站：${adapters.map((a) => a.source).join(', ')}`);
@@ -140,7 +132,6 @@ export async function liveSearch(
   keyword: string,
   opts: { sources?: Source[]; pages?: number } = {},
 ): Promise<{ items: ItemRow[]; errors: { source: Source; message: string }[] }> {
-  await withSurugaya();
   const adapters = getAdapters(opts.sources);
   const pages = opts.pages ?? 1;
   const errors: { source: Source; message: string }[] = [];

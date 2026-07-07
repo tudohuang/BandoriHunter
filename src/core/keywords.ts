@@ -37,62 +37,27 @@ export const BANDS: TagDef[] = [
   { tag: '夢限大みゅーたいぷ', patterns: ['夢限大みゅーたいぷ', '夢限大ミュータイプ', 'みゅーたいぷ'] },
 ];
 
-export const CHARACTERS: TagDef[] = [
-  // Poppin'Party
-  { tag: '戸山香澄', patterns: ['戸山香澄', '香澄', /kasumi/] },
-  { tag: '花園たえ', patterns: ['花園たえ', 'おたえ'] },
-  { tag: '牛込りみ', patterns: ['牛込りみ'] },
-  { tag: '山吹沙綾', patterns: ['山吹沙綾', '沙綾'] },
-  { tag: '市ヶ谷有咲', patterns: ['市ヶ谷有咲', '有咲'] },
-  // Afterglow
-  { tag: '美竹蘭', patterns: ['美竹蘭'] },
-  { tag: '青葉モカ', patterns: ['青葉モカ'] },
-  { tag: '上原ひまり', patterns: ['上原ひまり'] },
-  { tag: '宇田川巴', patterns: ['宇田川巴'] },
-  { tag: '羽沢つぐみ', patterns: ['羽沢つぐみ'] },
-  // Pastel*Palettes
-  { tag: '丸山彩', patterns: ['丸山彩'] },
-  { tag: '氷川日菜', patterns: ['氷川日菜'] },
-  { tag: '白鷺千聖', patterns: ['白鷺千聖', '千聖'] },
-  { tag: '大和麻弥', patterns: ['大和麻弥'] },
-  { tag: '若宮イヴ', patterns: ['若宮イヴ'] },
-  // Roselia
-  { tag: '湊友希那', patterns: ['湊友希那', '友希那'] },
-  { tag: '氷川紗夜', patterns: ['氷川紗夜', '紗夜'] },
-  { tag: '今井リサ', patterns: ['今井リサ'] },
-  { tag: '宇田川あこ', patterns: ['宇田川あこ'] },
-  { tag: '白金燐子', patterns: ['白金燐子', '燐子'] },
-  // ハロー、ハッピーワールド！
-  { tag: '弦巻こころ', patterns: ['弦巻こころ'] },
-  { tag: '瀬田薫', patterns: ['瀬田薫'] },
-  { tag: '北沢はぐみ', patterns: ['北沢はぐみ', 'はぐみ'] },
-  { tag: '松原花音', patterns: ['松原花音', '花音'] },
-  { tag: 'ミッシェル', patterns: ['奥沢美咲', 'ミッシェル'] },
-  // RAISE A SUILEN
-  { tag: 'LAYER', patterns: ['和奏レイ', /\blayer\b/] },
-  { tag: 'LOCK', patterns: ['朝日六花', '六花'] },
-  { tag: 'MASKING', patterns: ['佐藤ますき', /masking/] },
-  { tag: 'PAREO', patterns: ['鳰原れおな', /pareo/, 'パレオ'] },
-  { tag: 'CHU²', patterns: ['チュチュ', /chu2|chu²/] },
-  // Morfonica
-  { tag: '倉田ましろ', patterns: ['倉田ましろ', 'ましろ'] },
-  { tag: '桐ヶ谷透子', patterns: ['桐ヶ谷透子', '透子'] },
-  { tag: '広町七深', patterns: ['広町七深', '七深'] },
-  { tag: '二葉つくし', patterns: ['二葉つくし'] },
-  { tag: '八潮瑠唯', patterns: ['八潮瑠唯', '瑠唯'] },
-  // MyGO!!!!!
-  { tag: '高松燈', patterns: ['高松燈'] },
-  { tag: '千早愛音', patterns: ['千早愛音', '愛音'] },
-  { tag: '要楽奈', patterns: ['要楽奈', '楽奈'] },
-  { tag: '長崎そよ', patterns: ['長崎そよ'] },
-  { tag: '椎名立希', patterns: ['椎名立希', '立希'] },
-  // Ave Mujica
-  { tag: '三角初華', patterns: ['三角初華', '初華', /doloris/] },
-  { tag: '若葉睦', patterns: ['若葉睦', /mortis/] },
-  { tag: '八幡海鈴', patterns: ['八幡海鈴', '海鈴', /timoris/] },
-  { tag: '祐天寺にゃむ', patterns: ['祐天寺にゃむ', 'にゃむ', /amoris/] },
-  { tag: '豊川祥子', patterns: ['豊川祥子', '祥子', /oblivionis/] },
-];
+/**
+ * 角色表（緊湊格式）：`;` 分隔角色、`|` 分隔別名，首項=全名（可獨立判相關）。
+ * `標籤=全名` 表示顯示標籤與全名不同；`~xxx` 表示需要單字邊界（避免 layer 誤中 player）。
+ */
+const CHAR_DATA =
+  '戸山香澄|香澄|kasumi;花園たえ|おたえ;牛込りみ;山吹沙綾|沙綾;市ヶ谷有咲|有咲;' + // Poppin'Party
+  '美竹蘭;青葉モカ;上原ひまり;宇田川巴;羽沢つぐみ;' + // Afterglow
+  '丸山彩;氷川日菜;白鷺千聖|千聖;大和麻弥;若宮イヴ;' + // Pastel*Palettes
+  '湊友希那|友希那;氷川紗夜|紗夜;今井リサ;宇田川あこ;白金燐子|燐子;' + // Roselia
+  '弦巻こころ;瀬田薫;北沢はぐみ|はぐみ;松原花音|花音;ミッシェル=奥沢美咲|ミッシェル;' + // ハロハピ
+  'LAYER=和奏レイ|~layer;LOCK=朝日六花|六花;MASKING=佐藤ますき|masking;PAREO=鳰原れおな|pareo|パレオ;CHU²=チュチュ|chu2|chu²;' + // RAS
+  '倉田ましろ|ましろ;桐ヶ谷透子|透子;広町七深|七深;二葉つくし;八潮瑠唯|瑠唯;' + // Morfonica
+  '高松燈;千早愛音|愛音;要楽奈|楽奈;長崎そよ;椎名立希|立希;' + // MyGO!!!!!
+  '三角初華|初華|doloris;若葉睦|mortis;八幡海鈴|海鈴|timoris;祐天寺にゃむ|にゃむ|amoris;豊川祥子|祥子|oblivionis'; // Ave Mujica
+
+export const CHARACTERS: TagDef[] = CHAR_DATA.split(';').map((entry) => {
+  const [head, ...alts] = entry.split('|');
+  const [tag, fullName] = head.includes('=') ? head.split('=') : [head, head];
+  const patterns = [fullName, ...alts].map((p) => (p.startsWith('~') ? new RegExp(`\\b${p.slice(1)}\\b`) : p));
+  return { tag, patterns };
+});
 
 /** 作品本體判定（相關性核心）。注意排除 バンドリエール(LV包)、ガルパン(戰車) 等偽命中。 */
 const FRANCHISE_RX: RegExp[] = [
@@ -135,7 +100,7 @@ export function isAdultText(text: string): boolean {
 export function isRelevant(text: string): boolean {
   const t = norm(text);
   if (FRANCHISE_RX.some((rx) => rx.test(t))) return true;
-  // 樂團名或明確角色全名也算（例如駿河屋商品名可能只寫 Roselia）
+  // 樂團名或明確角色全名也算（商品名可能只寫 Roselia）
   for (const b of BANDS) {
     if (b.tag === 'RAISE A SUILEN') {
       // 避免 \bras\b 誤殺：單獨 RAS 需搭配其他訊號，全名/片假名可直接過

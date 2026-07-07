@@ -25,9 +25,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Crawl all sites (except Suruga-ya)
+      - name: Crawl all sites
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          NO_SURUGAYA: '1'
         run: npx tsx src/cli/index.ts crawl ${{ inputs.full && '--full' || '' }}

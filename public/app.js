@@ -1,15 +1,13 @@
 /* Bandori Hunter frontend */
 'use strict';
 
-const SRC_COLORS = {
-  surugaya: 'var(--c-surugaya)',
-  lashinbang: 'var(--c-lashinbang)',
+const SRC_COLORS = {  lashinbang: 'var(--c-lashinbang)',
   hardoff: 'var(--c-hardoff)',
   bookoff: 'var(--c-bookoff)',
   kbooks: 'var(--c-kbooks)',
   mercari: 'var(--c-mercari)',
 };
-const SRC_SHORT = { surugaya: '駿河屋', lashinbang: 'らしんばん', hardoff: 'HARD OFF', bookoff: 'BOOKOFF', kbooks: 'K-BOOKS', mercari: 'メルカリ' };
+const SRC_SHORT = { lashinbang: 'らしんばん', hardoff: 'HARD OFF', bookoff: 'BOOKOFF', kbooks: 'K-BOOKS', mercari: 'メルカリ' };
 const BAND_TAGS = ["Poppin'Party", 'Roselia', 'Afterglow', 'Pastel*Palettes', 'ハロー、ハッピーワールド！', 'RAISE A SUILEN', 'Morfonica', 'MyGO!!!!!', 'Ave Mujica'];
 
 const state = {
@@ -55,6 +53,8 @@ function toastMsg(text) {
   setTimeout(() => t.remove(), 5000);
 }
 
+const post = (u, d) => api(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+const del = (u) => api(u, { method: 'DELETE' });
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'HTTP ' + res.status);
@@ -130,7 +130,7 @@ function cardNode(it) {
   heart.onclick = async (ev) => {
     ev.stopPropagation();
     const on = !heart.classList.contains('on');
-    await api('/api/wishlist/' + it.id, { method: on ? 'POST' : 'DELETE' });
+    await (on ? post('/api/wishlist/' + it.id, {}) : del('/api/wishlist/' + it.id));
     heart.classList.toggle('on', on);
     heart.textContent = on ? '♥' : '♡';
     it.wished = on ? 1 : 0;
@@ -335,16 +335,16 @@ async function initWatchPanel() {
     for (const w of ws) {
       const li = el('li');
       li.appendChild(el('span', 'kw', w.keyword));
-      const del = el('button', 'del', '✕');
-      del.onclick = async () => { await api('/api/watches/' + w.id, { method: 'DELETE' }); refresh(); };
-      li.appendChild(del);
+      const rmBtn = el('button', 'del', '✕');
+      rmBtn.onclick = async () => { await del('/api/watches/' + w.id); refresh(); };
+      li.appendChild(rmBtn);
       listEl.appendChild(li);
     }
   };
   $('watchAdd').onclick = async () => {
     const kw = $('watchInput').value.trim();
     if (!kw) return;
-    await api('/api/watches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: kw }) });
+    await post('/api/watches', { keyword: kw });
     $('watchInput').value = '';
     toastMsg('已加入關注');
     refresh();
@@ -366,18 +366,18 @@ async function initSystemPanel() {
     if (!st.running && crawlPoll) { clearInterval(crawlPoll); crawlPoll = null; loadStats(); loadFacets(); }
   };
   const trigger = async (full) => {
-    await api('/api/crawl', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full }) }).catch((e) => toastMsg(e.message));
+    await post('/api/crawl', { full }).catch((e) => toastMsg(e.message));
     if (!crawlPoll) crawlPoll = setInterval(poll, 1500);
     poll();
   };
   $('crawlBtn').onclick = () => trigger(false);
   $('crawlFullBtn').onclick = () => trigger(true);
   $('webhookSave').onclick = async () => {
-    await api('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discord_webhook: $('webhookInput').value.trim() }) });
+    await post('/api/config', { discord_webhook: $('webhookInput').value.trim() });
     toastMsg('已儲存 webhook 設定');
   };
   $('intervalSave').onclick = async () => {
-    await api('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ crawl_interval_hours: Number($('intervalInput').value) || 3 }) });
+    await post('/api/config', { crawl_interval_hours: Number($('intervalInput').value) || 3 });
     toastMsg('已儲存（重啟服務後生效）');
   };
   const s = await loadStats();
@@ -538,11 +538,7 @@ async function liveSearch() {
   btn.innerHTML = '<span class="spin"></span> 查詢中…';
   $('liveStatus').textContent = '正在查詢各網站的最新結果…';
   try {
-    const r = await api('/api/live', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keyword: kw }),
-    });
+    const r = await post('/api/live', { keyword: kw });
     toastMsg(`同步完成：找到 ${r.items.length} 件`);
     for (const e of r.errors) toastMsg(`${SRC_SHORT[e.source]}：${e.message}`);
     state.q = kw;

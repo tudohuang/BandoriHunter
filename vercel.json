@@ -6,7 +6,7 @@
     "api/index.ts": {
       "maxDuration": 60,
       "memory": 1024,
-      "excludeFiles": "{node_modules/playwright/**,node_modules/playwright-core/**,data/**,public/**}"
+      "excludeFiles": "{data/**,public/**}"
     }
   },
   "rewrites": [

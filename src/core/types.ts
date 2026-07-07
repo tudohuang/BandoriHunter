@@ -1,7 +1,6 @@
-export type Source = 'surugaya' | 'lashinbang' | 'hardoff' | 'bookoff' | 'kbooks' | 'mercari';
+export type Source = 'lashinbang' | 'hardoff' | 'bookoff' | 'kbooks' | 'mercari';
 
 export const SOURCE_NAMES: Record<Source, string> = {
-  surugaya: '駿河屋',
   lashinbang: 'らしんばん',
   hardoff: 'HARD OFF / HOBBY OFF',
   bookoff: 'BOOKOFF',
