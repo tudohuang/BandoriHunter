@@ -52,6 +52,12 @@ async function pushTable(table: string, columns: string[]): Promise<void> {
   console.log();
 }
 
+// 完整鏡像：先清空遠端（price_history 有 FK 指向 items，REPLACE 刪舊列會撞 FK；
+// 也順便洗掉雲端自己爬進去的雜訊）。watches/meta 保留 REPLACE 合併。
+console.log('清空遠端 price_history / items（以本機為準完整鏡像）…');
+await remote.execute('DELETE FROM price_history');
+await remote.execute('DELETE FROM items');
+
 await pushTable('items', [
   'id', 'source', 'source_id', 'url', 'title', 'title_norm', 'price', 'status', 'condition', 'image',
   'jan', 'shop_info', 'series', 'note', 'category', 'tags', 'adult', 'first_seen', 'last_seen', 'wished',
