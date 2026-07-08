@@ -23,6 +23,21 @@ const local = createClient({ url: 'file:' + path.join(ROOT, 'data', 'bandori.db'
 const { ready, db: remote, computeTagFacets } = await import('../src/core/db.js');
 await ready();
 
+/** 跨海連線會偶發 ECONNRESET；INSERT OR REPLACE 冪等，直接重試整個 batch */
+async function batchWithRetry(stmts: InStatement[], retries = 5): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await remote.batch(stmts, 'write');
+      return;
+    } catch (e) {
+      if (attempt >= retries) throw e;
+      const wait = 2000 * (attempt + 1);
+      process.stdout.write(`\r  ⚠ ${(e as Error).message.slice(0, 40)}，${wait / 1000}s 後重試（${attempt + 1}/${retries}）…`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 async function pushTable(table: string, columns: string[]): Promise<void> {
   const r = await local.execute(`SELECT ${columns.join(',')} FROM ${table}`);
   const rows = r.rows as any[];
@@ -31,7 +46,7 @@ async function pushTable(table: string, columns: string[]): Promise<void> {
   const BATCH = 200;
   for (let i = 0; i < rows.length; i += BATCH) {
     const stmts: InStatement[] = rows.slice(i, i + BATCH).map((row) => ({ sql, args: columns.map((c) => row[c]) }));
-    await remote.batch(stmts, 'write');
+    await batchWithRetry(stmts);
     process.stdout.write(`\r  ${Math.min(i + BATCH, rows.length)}/${rows.length}`);
   }
   console.log();

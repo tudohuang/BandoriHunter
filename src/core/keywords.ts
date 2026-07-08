@@ -102,12 +102,24 @@ export const SEIYUU: (TagDef & { sweep: boolean })[] = SEIYUU_DATA.split(';').ma
 
 export const SEIYUU_SWEEP = SEIYUU.filter((s) => s.sweep).map((s) => s.tag);
 
+/**
+ * 聲優同名撞車雜訊：命中這些字樣時，「僅靠聲優名」不判相關（作品/樂團訊號仍可救回）。
+ * Raychell=自行車品牌、Ayasa=London Rag 靴款、夏芽すず(グラビア)/夏芽みのり(VTuber)/
+ * バニー夏芽(イコモチ角色) 是別人。
+ */
+const SEIYUU_NOISE_RX =
+  /自転車|輪行|サイクリング|クロスバイク|マウンテンバイク|london\s*rag|ロンドンラグ|ブーティ|パンプス|レインブーツ|サンダル|夏芽すず|夏芽みのり|バニー夏芽|イコモチ/;
+
 /** 預設掃站關鍵字（各站爬蟲輪詢用）：作品/樂團 + 可掃聲優 */
 export const DEFAULT_SWEEP = [...FRANCHISE_SWEEP, ...SEIYUU_SWEEP];
 
-/** 作品本體判定（相關性核心）。注意排除 バンドリエール(LV包)、ガルパン(戰車) 等偽命中。 */
+/**
+ * 作品本體判定（相關性核心）。注意排除偽命中：バンドリエール/バンドリール(LV包)、
+ * バンドリーノ(Bandolino 鞋)、バンドリーダー(band leader)、ガルパン(戰車)。
+ * 「バンドリーマー」(官方粉絲稱呼) 是自己人，不能排除。
+ */
 const FRANCHISE_RX: RegExp[] = [
-  /バンドリ(?!エール|ング|ムーバ|ル)/,
+  /バンドリ(?!エ|ング|ムーバ|ル|ーノ|ール|ーダ)/,
   /bang[\s_!-]*dream/,
   /ガルパ(?!ン|ート)/,
   /garupa/,
@@ -143,9 +155,13 @@ export function isAdultText(text: string): boolean {
   return ADULT_RX.test(norm(text));
 }
 
+/** 硬否決：LV 包標題常被截斷在「バンドリ(エール)」處，字尾判不出來；邦邦沒有 LV 聯名 */
+const VETO_RX = /ヴィトン|vuitton/;
+
 /** 判定商品是否為 BanG Dream 相關 */
 export function isRelevant(text: string): boolean {
   const t = norm(text);
+  if (VETO_RX.test(t)) return false;
   if (FRANCHISE_RX.some((rx) => rx.test(t))) return true;
   // 樂團名或明確角色全名也算（商品名可能只寫 Roselia）
   for (const b of BANDS) {
@@ -168,6 +184,6 @@ export function isRelevant(text: string): boolean {
     if (typeof first === 'string' && norm(first).length >= 4 && t.includes(norm(first))) return true;
   }
   // 可掃聲優的個人周邊視同相關（僅 sweep 名單；標籤用大牌名單不在此列，避免誤收非邦邦商品）
-  for (const s of SEIYUU) if (s.sweep && matchDef(t, s)) return true;
+  if (!SEIYUU_NOISE_RX.test(t)) for (const s of SEIYUU) if (s.sweep && matchDef(t, s)) return true;
   return false;
 }
