@@ -12,5 +12,13 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/img", "destination": "/api/index" }
+  ],
+  "headers": [
+    {
+      "source": "/snapshot/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800" }
+      ]
+    }
   ]
 }

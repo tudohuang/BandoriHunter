@@ -7,7 +7,8 @@
     "cli": "tsx src/cli/index.ts",
     "serve": "tsx src/cli/index.ts serve",
     "crawl": "tsx src/cli/index.ts crawl",
-    "search": "tsx src/cli/index.ts search"
+    "search": "tsx src/cli/index.ts search",
+    "export:static": "tsx scripts/export-static.mts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

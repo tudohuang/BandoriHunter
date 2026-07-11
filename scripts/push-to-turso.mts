@@ -1,10 +1,5 @@
 /**
  * 把本機 data/bandori.db 的資料整批推上 Turso（首次雲端部署用）。
- *
- * 用法（PowerShell）：
- *   $env:TURSO_DATABASE_URL="libsql://xxx.turso.io"
- *   $env:TURSO_AUTH_TOKEN="eyJ..."
- *   npx tsx scripts/push-to-turso.mts
  */
 import { createClient, type InStatement } from '@libsql/client';
 import path from 'node:path';
@@ -19,11 +14,9 @@ if (!url || !url.startsWith('libsql')) {
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const local = createClient({ url: 'file:' + path.join(ROOT, 'data', 'bandori.db').replace(/\\/g, '/') });
 
-// 建表（db.ts 會讀 TURSO_DATABASE_URL 連上遠端）
 const { ready, db: remote, computeTagFacets } = await import('../src/core/db.js');
 await ready();
 
-/** 跨海連線會偶發 ECONNRESET；INSERT OR REPLACE 冪等，直接重試整個 batch */
 async function batchWithRetry(stmts: InStatement[], retries = 5): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
@@ -52,8 +45,6 @@ async function pushTable(table: string, columns: string[]): Promise<void> {
   console.log();
 }
 
-// 完整鏡像：先清空遠端（price_history 有 FK 指向 items，REPLACE 刪舊列會撞 FK；
-// 也順便洗掉雲端自己爬進去的雜訊）。watches/meta 保留 REPLACE 合併。
 console.log('清空遠端 price_history / items（以本機為準完整鏡像）…');
 await remote.execute('DELETE FROM price_history');
 await remote.execute('DELETE FROM items');

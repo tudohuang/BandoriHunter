@@ -10,14 +10,18 @@ const SRC_COLORS = {
   mercari: 'var(--c-mercari)',
 };
 const SRC_SHORT = { surugaya: '駿河屋', lashinbang: 'らしんばん', hardoff: 'HARD OFF', bookoff: 'BOOKOFF', kbooks: 'K-BOOKS', mercari: 'メルカリ' };
+const ALL_SOURCES = Object.keys(SRC_COLORS);
+const GRID_TABS = new Set(['browse', 'new', 'wish']);
+const PAGE_SIZE = 60;
+const STATS_REFRESH_MS = 300000;
+const SNAPSHOT_ENABLED = !/^(localhost|127\.|\[?::1)/.test(location.hostname) || new URLSearchParams(location.search).has('snapshot');
 const BAND_TAGS = ["Poppin'Party", 'Roselia', 'Afterglow', 'Pastel*Palettes', 'ハロー、ハッピーワールド！', 'RAISE A SUILEN', 'Morfonica', 'MyGO!!!!!', 'Ave Mujica'];
-// 與 src/core/keywords.ts 的 SEIYUU 同步
 const SEIYUU_TAGS = ['愛美', '大塚紗英', '西本りみ', '大橋彩香', '伊藤彩沙', '佐倉綾音', '三澤紗千香', '加藤英美里', '日笠陽子', '金元寿子', '前島亜美', '小澤亜李', '上坂すみれ', '中上育実', '秦佐和子', '相羽あいな', '工藤晴香', '中島由貴', '櫻川めぐ', '志崎樺音', '遠藤ゆりか', '明坂聡美', '伊藤美来', '田所あずさ', '吉田有里', '豊田萌絵', '黒沢ともよ', 'Raychell', '小原莉子', '夏芽', '紡木吏佐', '倉知玲鳳', '進藤あまね', '直田姫奈', '西尾夕香', 'mika', 'Ayasa', '羊宮妃那', '立石凛', '青木陽菜', '小日向美香', '林鼓子', '佐々木李子', '渡瀬結月', '米澤茜', '岡田夢以', '高尾奏音'];
 
 const state = {
   tab: 'browse',
   q: '',
-  sources: new Set(Object.keys(SRC_COLORS)),
+  sources: new Set(ALL_SOURCES),
   categories: new Set(),
   tag: null,
   instock: false,
@@ -42,6 +46,7 @@ const el = (tag, cls, text) => {
 const yen = (p) => (p != null ? '¥' + p.toLocaleString() : '—');
 const imgSrc = (u) => '/img?u=' + encodeURIComponent(u);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const isGridTab = (tab) => GRID_TABS.has(tab);
 
 function timeAgo(iso) {
   const s = (Date.now() - Date.parse(iso)) / 1000;
@@ -60,22 +65,179 @@ function toastMsg(text) {
 const post = (u, d) => api(u, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
 const del = (u) => api(u, { method: 'DELETE' });
 async function api(path, opts) {
+  const snap = await snapshotApi(path, opts);
+  if (snap) return snap.data;
   const res = await fetch(path, opts);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'HTTP ' + res.status);
   return res.json();
 }
 
+const snapshot = { meta: null, chunks: new Map(), all: null };
+const snapshotChunkName = (index) => `/snapshot/items-${String(index).padStart(3, '0')}.json`;
+const snapNorm = (s) => String(s || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+
+async function snapshotMeta() {
+  if (!snapshot.meta) {
+    snapshot.meta = fetch('/snapshot/meta.json', { cache: 'force-cache' })
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+  }
+  return snapshot.meta;
+}
+
+async function snapshotChunk(index) {
+  if (!snapshot.chunks.has(index)) {
+    snapshot.chunks.set(
+      index,
+      fetch(snapshotChunkName(index), { cache: 'force-cache' })
+        .then((res) => (res.ok ? res.json() : []))
+        .catch(() => []),
+    );
+  }
+  return snapshot.chunks.get(index);
+}
+
+async function snapshotAllItems(meta) {
+  if (!snapshot.all) {
+    snapshot.all = (async () => {
+      const items = [];
+      for (let i = 0; i < meta.chunks; i += 6) {
+        const parts = await Promise.all(Array.from({ length: Math.min(6, meta.chunks - i) }, (_, n) => snapshotChunk(i + n)));
+        for (const part of parts) items.push(...part);
+      }
+      return items;
+    })();
+  }
+  return snapshot.all;
+}
+
+function snapshotSort(items, sort) {
+  const out = items.slice();
+  const timeDesc = (field) => (a, b) => Date.parse(b[field] || 0) - Date.parse(a[field] || 0) || b.id - a.id;
+  const priceRank = (it) => (it.price == null ? Number.POSITIVE_INFINITY : Number(it.price));
+  if (sort === 'updated') return out.sort(timeDesc('last_seen'));
+  if (sort === 'price_asc') return out.sort((a, b) => priceRank(a) - priceRank(b));
+  if (sort === 'price_desc') return out.sort((a, b) => priceRank(a) === Number.POSITIVE_INFINITY ? 1 : priceRank(b) === Number.POSITIVE_INFINITY ? -1 : priceRank(b) - priceRank(a));
+  return out.sort(timeDesc('first_seen'));
+}
+
+function snapshotFilters(params) {
+  return {
+    q: snapNorm(params.get('q')),
+    sources: params.get('source')?.split(',').filter(Boolean) ?? null,
+    categories: params.get('category')?.split(',').filter(Boolean) ?? null,
+    tag: params.get('tag'),
+    status: params.get('status'),
+    minPrice: params.get('minPrice') ? Number(params.get('minPrice')) : null,
+    maxPrice: params.get('maxPrice') ? Number(params.get('maxPrice')) : null,
+    since: params.get('sinceHours') ? Date.now() - Number(params.get('sinceHours')) * 3600_000 : null,
+    wished: params.get('wished') === '1',
+  };
+}
+
+function snapshotFilterItems(items, params) {
+  const f = snapshotFilters(params);
+  const toks = f.q ? f.q.split(' ').filter(Boolean) : [];
+  return items.filter((it) => {
+    if (toks.length && !toks.every((t) => String(it.title_norm || '').includes(t))) return false;
+    if (f.sources && !f.sources.includes(it.source)) return false;
+    if (f.categories && !f.categories.includes(it.category)) return false;
+    if (f.tag && !String(it.tags || '').includes(JSON.stringify(f.tag).slice(1, -1))) return false;
+    if (f.status && it.status !== f.status) return false;
+    if (f.minPrice != null && !(it.price >= f.minPrice)) return false;
+    if (f.maxPrice != null && !(it.price <= f.maxPrice)) return false;
+    if (f.since != null && Date.parse(it.first_seen) < f.since) return false;
+    if (f.wished && !it.wished) return false;
+    return true;
+  });
+}
+
+function canUseSnapshotPage(params) {
+  return !params.get('q') && !params.get('source') && !params.get('category') && !params.get('tag') && !params.get('status') &&
+    !params.get('minPrice') && !params.get('maxPrice') && !params.get('sinceHours') && params.get('wished') !== '1' &&
+    ((params.get('sort') || 'newest') === 'newest');
+}
+
+async function snapshotItems(params, meta) {
+  const limit = Math.min(Number(params.get('limit')) || PAGE_SIZE, 200);
+  const offset = Number(params.get('offset')) || 0;
+  if (canUseSnapshotPage(params)) {
+    const first = Math.floor(offset / meta.chunkSize);
+    const last = Math.floor((offset + limit - 1) / meta.chunkSize);
+    const parts = await Promise.all(Array.from({ length: last - first + 1 }, (_, i) => snapshotChunk(first + i)));
+    return { items: parts.flat().slice(offset - first * meta.chunkSize, offset - first * meta.chunkSize + limit), total: meta.total };
+  }
+  const items = snapshotSort(snapshotFilterItems(await snapshotAllItems(meta), params), params.get('sort') || 'newest');
+  return { items: items.slice(offset, offset + limit), total: items.length };
+}
+
+function bigrams(s) {
+  const t = snapNorm(s).replace(/[^\p{L}\p{N}]/gu, '');
+  return new Set(Array.from({ length: Math.max(0, t.length - 1) }, (_, i) => t.slice(i, i + 2)));
+}
+
+function snapshotSimilar(item, items) {
+  const a = bigrams(item.title_norm || item.title);
+  return items
+    .filter((it) => it.id !== item.id && (it.category === item.category || (item.jan && it.jan === item.jan)))
+    .map((it) => {
+      if (item.jan && it.jan === item.jan) return { ...it, score: 1 };
+      const b = bigrams(it.title_norm || it.title);
+      const inter = [...a].filter((g) => b.has(g)).length;
+      return { ...it, score: (2 * inter) / (a.size + b.size || 1) };
+    })
+    .filter((it) => it.score >= 0.45)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+}
+
+async function snapshotItem(id, meta) {
+  const items = await snapshotAllItems(meta);
+  const item = items.find((it) => Number(it.id) === Number(id));
+  if (!item) throw new Error('not found');
+  return { item, history: [], similar: snapshotSimilar(item, items) };
+}
+
+async function snapshotCompare(params, meta) {
+  const q = params.get('q') || '';
+  const sourceParams = new URLSearchParams({ q, sort: 'price_asc', limit: '120' });
+  if (params.get('instock') === '1') sourceParams.set('status', 'instock');
+  const items = snapshotSort(snapshotFilterItems(await snapshotAllItems(meta), sourceParams), 'price_asc');
+  const summary = Object.fromEntries(ALL_SOURCES.map((src) => {
+    const sourceItems = items.filter((it) => it.source === src);
+    return [src, { count: sourceItems.length, cheapest: sourceItems[0] ?? null }];
+  }));
+  return { summary, items: items.slice(0, 120), total: items.length };
+}
+
+async function snapshotApi(path, opts) {
+  if (!SNAPSHOT_ENABLED) return null;
+  if (opts && opts.method && opts.method !== 'GET') return null;
+  const meta = await snapshotMeta();
+  if (!meta) return null;
+  const url = new URL(path, location.origin);
+  if (url.pathname === '/api/stats') return { data: meta.stats };
+  if (url.pathname === '/api/facets') return { data: meta.facets };
+  if (url.pathname === '/api/items') return { data: await snapshotItems(url.searchParams, meta) };
+  if (url.pathname === '/api/compare') return { data: await snapshotCompare(url.searchParams, meta) };
+  const itemMatch = url.pathname.match(/^\/api\/item\/(\d+)$/);
+  if (itemMatch) return { data: await snapshotItem(itemMatch[1], meta) };
+  return null;
+}
+
+function resetItems() {
+  state.offset = 0;
+  state.items = [];
+  state.done = false;
+}
+
 /* ---------------- filters / query ---------------- */
 
 function buildQuery(reset) {
-  if (reset) {
-    state.offset = 0;
-    state.items = [];
-    state.done = false;
-  }
+  if (reset) resetItems();
   const p = new URLSearchParams();
   if (state.q) p.set('q', state.q);
-  if (state.sources.size < Object.keys(SRC_COLORS).length) p.set('source', [...state.sources].join(','));
+  if (state.sources.size < ALL_SOURCES.length) p.set('source', [...state.sources].join(','));
   if (state.categories.size) p.set('category', [...state.categories].join(','));
   if (state.tag) p.set('tag', state.tag);
   if (state.instock) p.set('status', 'instock');
@@ -84,7 +246,7 @@ function buildQuery(reset) {
   if (state.tab === 'new') p.set('sinceHours', '72');
   if (state.tab === 'wish') p.set('wished', '1');
   p.set('sort', state.tab === 'new' ? 'newest' : state.sort);
-  p.set('limit', '60');
+  p.set('limit', String(PAGE_SIZE));
   p.set('offset', state.offset);
   return p;
 }
@@ -96,7 +258,7 @@ async function loadItems(reset) {
   state.total = data.total;
   state.items = state.offset === 0 ? data.items : state.items.concat(data.items);
   state.offset += data.items.length;
-  if (data.items.length < 60) state.done = true;
+  if (data.items.length < PAGE_SIZE) state.done = true;
   state.loading = false;
   render();
 }
@@ -173,7 +335,7 @@ async function loadFacets() {
   state.facets = await api('/api/facets');
   const sf = $('sourceFilters');
   sf.replaceChildren();
-  for (const src of Object.keys(SRC_COLORS)) {
+  for (const src of ALL_SOURCES) {
     const row = el('div', 'srcrow' + (state.sources.has(src) ? '' : ' off'));
     const dot = el('span', 'srcdot');
     dot.style.background = SRC_COLORS[src];
@@ -229,8 +391,8 @@ async function loadStats() {
   $('topStats').innerHTML =
     `收錄 <b>${s.total.toLocaleString()}</b> 件<br>` +
     `上次更新：${s.lastCrawl ? timeAgo(s.lastCrawl) : '<span style="color:var(--warn)">尚未更新</span>'}`;
-  const nb = await api('/api/items?sinceHours=72&limit=1');
-  $('newBadge').textContent = nb.total > 0 ? (nb.total > 999 ? '999+' : nb.total) : '';
+  const newTotal = Number(s.newItems72 ?? 0);
+  $('newBadge').textContent = newTotal > 0 ? (newTotal > 999 ? '999+' : newTotal) : '';
   return s;
 }
 
@@ -313,7 +475,7 @@ function switchTab(tab) {
   const main = document.querySelector('.main');
   const sidebar = $('sidebar');
   const grid = $('grid');
-  const isGrid = ['browse', 'new', 'wish'].includes(tab);
+  const isGrid = isGridTab(tab);
   sidebar.style.display = isGrid ? '' : 'none';
   grid.style.display = isGrid ? '' : 'none';
   $('sentinel').style.display = isGrid ? '' : 'none';
@@ -570,7 +732,7 @@ $('searchInput').addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     state.q = $('searchInput').value.trim();
-    if (['browse', 'new', 'wish'].includes(state.tab)) loadItems(true);
+    if (isGridTab(state.tab)) loadItems(true);
   }, 300);
 });
 $('liveBtn').onclick = liveSearch;
@@ -588,7 +750,7 @@ for (const inp of ['minPrice', 'maxPrice']) {
 $('instockOnly').addEventListener('change', (e) => { state.instock = e.target.checked; loadItems(true); });
 $('sortSel').addEventListener('change', (e) => { state.sort = e.target.value; loadItems(true); });
 $('clearFilters').onclick = () => {
-  state.sources = new Set(Object.keys(SRC_COLORS));
+  state.sources = new Set(ALL_SOURCES);
   state.categories.clear();
   state.tag = null;
   state.instock = false;
@@ -606,7 +768,7 @@ $('tabs').addEventListener('click', (e) => {
 $('modal').querySelector('.modal-backdrop').onclick = closeModal;
 
 new IntersectionObserver((entries) => {
-  if (entries[0].isIntersecting && !state.loading && !state.done && ['browse', 'new', 'wish'].includes(state.tab)) {
+  if (entries[0].isIntersecting && !state.loading && !state.done && isGridTab(state.tab)) {
     loadItems(false);
   }
 }).observe($('sentinel'));
@@ -614,4 +776,4 @@ new IntersectionObserver((entries) => {
 loadFacets();
 loadStats();
 loadItems(true);
-setInterval(loadStats, 120000);
+setInterval(loadStats, STATS_REFRESH_MS);

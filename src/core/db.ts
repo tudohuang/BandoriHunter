@@ -68,24 +68,28 @@ const UPDATE_SQL = `UPDATE items SET url=?, title=?, title_norm=?, price=?, stat
   jan=COALESCE(?, jan), shop_info=?, series=?, note=?, category=?, tags=?, adult=?, last_seen=? WHERE id=?`;
 const HISTORY_SQL = 'INSERT INTO price_history(item_id, price, status, seen_at) VALUES (?,?,?,?)';
 
-/** 批次 upsert：每批 = 1 次查既有 + 1~2 次 batch 寫入（Turso 遠端時把往返次數壓到最低） */
-export async function upsertMany(raws: RawItem[]): Promise<UpsertResult[]> {
-  await ready();
-  if (!raws.length) return [];
-  const ts = now();
-  const items = raws.map((r) => {
-    const matchText = [r.title, r.series, r.searchText].filter(Boolean).join(' ');
-    return {
-      r,
-      tn: norm(matchText),
-      cat: categorize(r.title, r.series),
-      tags: JSON.stringify(extractTags(matchText)),
-      adult: r.adult || isAdultText(matchText) ? 1 : 0,
-    };
-  });
+function prepareItem(r: RawItem) {
+  const matchText = [r.title, r.series, r.searchText].filter(Boolean).join(' ');
+  return {
+    r,
+    tn: norm(matchText),
+    cat: categorize(r.title, r.series),
+    tags: JSON.stringify(extractTags(matchText)),
+    adult: r.adult || isAdultText(matchText) ? 1 : 0,
+  };
+}
 
-  // 查既有（依 source 分組、IN 分塊）
-  const existing = new Map<string, { id: number; price: number | null; status: Stock }>();
+type PreparedItem = ReturnType<typeof prepareItem>;
+type ExistingItem = { id: number; price: number | null; status: Stock };
+type UpsertMeta =
+  | { kind: 'i'; e: PreparedItem }
+  | { kind: 'u'; e: PreparedItem; ex: ExistingItem }
+  | { kind: 'h' };
+
+const existingKey = (source: Source, sourceId: string) => source + ' ' + sourceId;
+
+async function loadExistingItems(items: PreparedItem[]): Promise<Map<string, ExistingItem>> {
+  const existing = new Map<string, ExistingItem>();
   const bySource = Map.groupBy(items, (e) => e.r.source);
   for (const [source, list] of bySource) {
     const ids = [...new Set(list.map((e) => e.r.sourceId))];
@@ -95,27 +99,47 @@ export async function upsertMany(raws: RawItem[]): Promise<UpsertResult[]> {
         `SELECT id, source_id, price, status FROM items WHERE source=? AND source_id IN (${chunk.map(() => '?').join(',')})`,
         [source, ...chunk],
       ))
-        existing.set(source + ' ' + row.source_id, { id: n(row.id), price: row.price, status: row.status });
+        existing.set(existingKey(source, row.source_id), { id: n(row.id), price: row.price, status: row.status });
     }
   }
+  return existing;
+}
+
+function queueUpsert(
+  e: PreparedItem,
+  existing: Map<string, ExistingItem>,
+  ts: string,
+  stmts: InStatement[],
+  metas: UpsertMeta[],
+): void {
+  const { r } = e;
+  const ex = existing.get(existingKey(r.source, r.sourceId));
+  if (!ex) {
+    stmts.push({ sql: INSERT_SQL, args: [r.source, r.sourceId, r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ts] });
+    metas.push({ kind: 'i', e });
+    return;
+  }
+  stmts.push({ sql: UPDATE_SQL, args: [r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ex.id] });
+  metas.push({ kind: 'u', e, ex });
+  if (ex.price !== r.price || ex.status !== r.status) {
+    stmts.push({ sql: HISTORY_SQL, args: [ex.id, r.price, r.status, ts] });
+    metas.push({ kind: 'h' });
+  }
+}
+
+/** 批次 upsert：每批 = 1 次查既有 + 1~2 次 batch 寫入（Turso 遠端時把往返次數壓到最低） */
+export async function upsertMany(raws: RawItem[]): Promise<UpsertResult[]> {
+  await ready();
+  if (!raws.length) return [];
+  const ts = now();
+  const items = raws.map(prepareItem);
+
+  // 查既有（依 source 分組、IN 分塊）
+  const existing = await loadExistingItems(items);
 
   const stmts: InStatement[] = [];
-  const metas: ({ kind: 'i'; e: (typeof items)[0] } | { kind: 'u'; e: (typeof items)[0]; ex: { id: number; price: number | null } } | { kind: 'h' })[] = [];
-  for (const e of items) {
-    const { r } = e;
-    const ex = existing.get(r.source + ' ' + r.sourceId);
-    if (!ex) {
-      stmts.push({ sql: INSERT_SQL, args: [r.source, r.sourceId, r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ts] });
-      metas.push({ kind: 'i', e });
-    } else {
-      stmts.push({ sql: UPDATE_SQL, args: [r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ex.id] });
-      metas.push({ kind: 'u', e, ex });
-      if (ex.price !== r.price || ex.status !== r.status) {
-        stmts.push({ sql: HISTORY_SQL, args: [ex.id, r.price, r.status, ts] });
-        metas.push({ kind: 'h' });
-      }
-    }
-  }
+  const metas: UpsertMeta[] = [];
+  for (const e of items) queueUpsert(e, existing, ts, stmts, metas);
   const batch = await db.batch(stmts, 'write');
 
   const results: UpsertResult[] = [];
@@ -231,11 +255,13 @@ export const addWatch = (keyword: string) => exec('INSERT OR IGNORE INTO watches
 export const removeWatch = (id: number) => exec('DELETE FROM watches WHERE id=?', [id]);
 
 export async function stats() {
-  const [total, wished, bySource, lastCrawl] = await Promise.all([
+  const since72h = new Date(Date.now() - 72 * 3600_000).toISOString();
+  const [total, wished, bySource, lastCrawl, newItems72] = await Promise.all([
     one('SELECT COUNT(*) c FROM items'),
     one('SELECT COUNT(*) c FROM items WHERE wished=1'),
     countBy('source'),
     getMeta('last_crawl'),
+    one('SELECT COUNT(*) c FROM items WHERE first_seen >= ?', [since72h]),
   ]);
-  return { total: n(total.c), lastCrawl, bySource, wished: n(wished.c) };
+  return { total: n(total.c), lastCrawl, bySource, wished: n(wished.c), newItems72: n(newItems72.c) };
 }

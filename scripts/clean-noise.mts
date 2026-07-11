@@ -1,10 +1,7 @@
 /**
- * 清除同名撞車雜訊（Bandolino 鞋、LV バンドリエール包、自行車 Raychell、別的夏芽…）。
+ * 清除同名雜訊（Bandolino 鞋、LV バンドリエール包、自行車 Raychell、別的夏芽…）。
  * 先用雜訊字樣縮小範圍，再用現行 isRelevant 重判，不相關才刪。
- *
- * 本機：npx tsx scripts/clean-noise.mts
- * 雲端：設好 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 再跑同一行。
- */
+ *  */
 import { isRelevant } from '../src/core/keywords.js';
 import { computeTagFacets, db, ready } from '../src/core/db.js';
 

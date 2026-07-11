@@ -69,62 +69,98 @@ async function serveImage(u: string, res: Response): Promise<void> {
 const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
 const list = (v: unknown) => str(v)?.split(',');
 
+function cachePublic(res: Response, browserSeconds: number, edgeSeconds = browserSeconds, staleSeconds = edgeSeconds): void {
+  res.setHeader('Cache-Control', `public, max-age=${browserSeconds}, s-maxage=${edgeSeconds}, stale-while-revalidate=${staleSeconds}`);
+}
+
+function errorStatus(message: string): number {
+  return /reads?\s+blocked|read\s+limit|overages/i.test(message) ? 429 : 500;
+}
+
+const h = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response) =>
+  Promise.resolve(fn(req, res)).catch((e) => {
+    const message = (e as Error).message ?? String(e);
+    const status = errorStatus(message);
+    if (status === 429) res.setHeader('Cache-Control', 'no-store');
+    res.status(status).json({
+      error:
+        status === 429
+          ? 'Database reads are blocked by the Turso quota. Enable overages, upgrade the plan, or wait for the monthly reset.'
+          : message,
+    });
+  });
+
+function itemQueryFrom(q: Request['query']): D.QueryOptions {
+  return {
+    q: str(q.q),
+    source: list(q.source) as Source[] | undefined,
+    category: list(q.category),
+    tag: str(q.tag),
+    status: q.status as Stock | undefined,
+    minPrice: q.minPrice ? Number(q.minPrice) : undefined,
+    maxPrice: q.maxPrice ? Number(q.maxPrice) : undefined,
+    sinceHours: q.sinceHours ? Number(q.sinceHours) : undefined,
+    wished: q.wished === '1',
+    sort: (str(q.sort) as D.QueryOptions['sort']) ?? 'newest',
+    limit: Math.min(Number(q.limit) || 60, 200),
+    offset: Number(q.offset) || 0,
+  };
+}
+
+async function compareItems(q: string, status?: Stock) {
+  const sources = Object.keys(SOURCE_NAMES) as Source[];
+  const per = await Promise.all(sources.map((src) => D.queryItems({ q, source: [src], status, sort: 'price_asc', limit: 1 })));
+  const summary = Object.fromEntries(sources.map((src, i) => [src, { count: per[i].total, cheapest: per[i].items[0] ?? null }]));
+  return { summary, ...(await D.queryItems({ q, status, sort: 'price_asc', limit: 120 })) };
+}
+
 export function buildApp(): express.Express {
   const app = express();
   app.use(express.json());
   if (!CLOUD) app.use(express.static(path.join(D.ROOT, 'public')));
 
-  /** async route helper：統一回 500 JSON */
-  const h = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response) =>
-    Promise.resolve(fn(req, res)).catch((e) => res.status(500).json({ error: (e as Error).message ?? String(e) }));
-
   app.get('/img', h((req, res) => serveImage(String(req.query.u ?? ''), res)));
 
   app.get('/api/items', h(async (req, res) => {
-    const q = req.query;
-    res.json(await D.queryItems({
-      q: str(q.q),
-      source: list(q.source) as Source[] | undefined,
-      category: list(q.category),
-      tag: str(q.tag),
-      status: q.status as Stock | undefined,
-      minPrice: q.minPrice ? Number(q.minPrice) : undefined,
-      maxPrice: q.maxPrice ? Number(q.maxPrice) : undefined,
-      sinceHours: q.sinceHours ? Number(q.sinceHours) : undefined,
-      wished: q.wished === '1',
-      sort: (str(q.sort) as any) ?? 'newest',
-      limit: Math.min(Number(q.limit) || 60, 200),
-      offset: Number(q.offset) || 0,
-    }));
+    const data = await D.queryItems(itemQueryFrom(req.query));
+    cachePublic(res, 30, 300, 600);
+    res.json(data);
   }));
 
-  app.get('/api/facets', h(async (_req, res) => res.json({ ...(await D.facets()), allCategories: CATEGORIES })));
+  app.get('/api/facets', h(async (_req, res) => {
+    const data = { ...(await D.facets()), allCategories: CATEGORIES };
+    cachePublic(res, 600, 1800, 3600);
+    res.json(data);
+  }));
 
   app.get('/api/compare', h(async (req, res) => {
     const q = str(req.query.q)?.trim();
     if (!q) return res.status(400).json({ error: 'q required' });
     const status = req.query.instock === '1' ? ('instock' as const) : undefined;
-    const sources = Object.keys(SOURCE_NAMES) as Source[];
-    const per = await Promise.all(sources.map((src) => D.queryItems({ q, source: [src], status, sort: 'price_asc', limit: 1 })));
-    const summary = Object.fromEntries(sources.map((src, i) => [src, { count: per[i].total, cheapest: per[i].items[0] ?? null }]));
-    res.json({ summary, ...(await D.queryItems({ q, status, sort: 'price_asc', limit: 120 })) });
+    const data = await compareItems(q, status);
+    cachePublic(res, 120, 300, 600);
+    res.json(data);
   }));
 
-  app.get('/api/stats', h(async (_req, res) =>
-    res.json({
+  app.get('/api/stats', h(async (_req, res) => {
+    const data = {
       ...(await D.stats()),
       sourceNames: SOURCE_NAMES,
       crawlIntervalHours: Number((await D.getMeta('crawl_interval_hours')) ?? 3),
       discordWebhookSet: !!(await D.getMeta('discord_webhook')),
       baselineDone: (await D.getMeta('baseline_done')) === '1',
       cloudMode: CLOUD,
-    }),
-  ));
+    };
+    cachePublic(res, 60, 300, 600);
+    res.json(data);
+  }));
 
   app.get('/api/item/:id', h(async (req, res) => {
     const item = await D.getItem(Number(req.params.id));
     if (!item) return res.status(404).json({ error: 'not found' });
-    res.json({ item, history: await D.priceHistory(item.id), similar: await D.similarItems(item.id) });
+    const data = { item, history: await D.priceHistory(item.id), similar: await D.similarItems(item.id) };
+    cachePublic(res, 120, 600, 1200);
+    res.json(data);
   }));
 
   app.post('/api/wishlist/:id', h(async (req, res) => res.json(await D.setWished(Number(req.params.id), true).then(() => ({ ok: true })))));

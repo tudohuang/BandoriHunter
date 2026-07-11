@@ -76,6 +76,20 @@ async function crawlSite(
   return { report, newIds, baseline };
 }
 
+function matchesWatch(item: ItemRow, keyword: string): boolean {
+  const toks = norm(keyword).split(' ').filter(Boolean);
+  return toks.every((t) => item.title_norm.includes(t) || item.tags.includes(t));
+}
+
+function watchMatches(watches: { keyword: string }[], items: ItemRow[]) {
+  return watches
+    .map((w) => ({
+      keyword: w.keyword,
+      items: items.filter((it) => matchesWatch(it, w.keyword)),
+    }))
+    .filter((m) => m.items.length);
+}
+
 export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
   const startedAt = new Date().toISOString();
   const log = opts.onLog ?? ((m: string) => console.log(m));
@@ -107,16 +121,7 @@ export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
   // 通知：非首次、非 quiet，比對關注關鍵字
   if (!opts.quiet && newItems.length) {
     const watches = await listWatches();
-    const matched = watches
-      .map((w) => ({
-        keyword: w.keyword,
-        items: newItems.filter((it) => {
-          const toks = norm(w.keyword).split(' ').filter(Boolean);
-          return toks.every((t) => it.title_norm.includes(t) || it.tags.includes(t));
-        }),
-      }))
-      .filter((m) => m.items.length);
-    await notifyNewItems(matched);
+    await notifyNewItems(watchMatches(watches, newItems));
   }
 
   await setMeta('baseline_done', '1');
