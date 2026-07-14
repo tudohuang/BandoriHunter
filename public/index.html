@@ -35,7 +35,12 @@
 </header>
 
 <div class="layout">
+  <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="關閉篩選"></button>
   <aside class="sidebar" id="sidebar">
+    <div class="filter-head">
+      <strong>篩選商品</strong>
+      <button id="filterClose" class="icon-btn" type="button" aria-label="關閉篩選">&times;</button>
+    </div>
     <section class="fgroup">
       <h4>來源</h4>
       <div id="sourceFilters"></div>
@@ -64,6 +69,7 @@
       </div>
     </section>
     <button id="clearFilters" class="btn btn-plain wide">清除所有條件</button>
+    <button id="filterDone" class="btn btn-primary wide filter-done" type="button">查看結果</button>
   </aside>
 
   <main class="main">
@@ -71,6 +77,11 @@
       <span id="resultCount" class="resultcount"></span>
       <span id="liveStatus" class="livestatus"></span>
       <div class="resulttools">
+        <button id="filterToggle" class="btn filter-toggle" type="button" aria-controls="sidebar" aria-expanded="false">
+          <span class="filter-icon" aria-hidden="true"></span>
+          <span>篩選</span>
+          <span class="filter-count" id="filterCount" hidden></span>
+        </button>
         <select id="sortSel" aria-label="排序">
           <option value="newest">排序：最新收錄</option>
           <option value="price_asc">排序：價格低到高</option>

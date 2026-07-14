@@ -331,6 +331,24 @@ function render() {
 
 /* ---------------- facets / sidebar ---------------- */
 
+function activeFilterCount() {
+  return (ALL_SOURCES.length - state.sources.size) + state.categories.size + (state.tag ? 1 : 0) +
+    (state.instock ? 1 : 0) + (state.minPrice != null ? 1 : 0) + (state.maxPrice != null ? 1 : 0);
+}
+
+function updateFilterButton() {
+  const count = activeFilterCount();
+  const badge = $('filterCount');
+  badge.textContent = count;
+  badge.hidden = count === 0;
+}
+
+function setFiltersOpen(open) {
+  document.body.classList.toggle('filters-open', open);
+  $('filterToggle').setAttribute('aria-expanded', String(open));
+  if (open && window.innerWidth <= 900) $('filterClose').focus();
+}
+
 async function loadFacets() {
   state.facets = await api('/api/facets');
   const sf = $('sourceFilters');
@@ -346,6 +364,7 @@ async function loadFacets() {
       if (state.sources.has(src) && state.sources.size === 1) return;
       state.sources.has(src) ? state.sources.delete(src) : state.sources.add(src);
       row.classList.toggle('off');
+      updateFilterButton();
       loadItems(true);
     };
     sf.appendChild(row);
@@ -359,6 +378,7 @@ async function loadFacets() {
     chip.onclick = () => {
       state.categories.has(cat) ? state.categories.delete(cat) : state.categories.add(cat);
       chip.classList.toggle('on');
+      updateFilterButton();
       loadItems(true);
     };
     cc.appendChild(chip);
@@ -378,12 +398,14 @@ async function loadFacets() {
       state.tag = state.tag === tag ? null : tag;
       [...tc.children, ...sc.children].forEach((c) => c.classList.remove('on'));
       if (state.tag) chip.classList.add('on');
+      updateFilterButton();
       loadItems(true);
     };
     container.appendChild(chip);
   };
   for (const [tag, n] of [...bands, ...chars]) addChip(tc, tag, n);
   for (const [tag, n] of seiyuu) addChip(sc, tag, n);
+  updateFilterButton();
 }
 
 async function loadStats() {
@@ -448,7 +470,11 @@ async function openModal(id) {
   $('modal').hidden = false;
 }
 function closeModal() { $('modal').hidden = true; }
-document.addEventListener('keydown', (e) => e.key === 'Escape' && closeModal());
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  closeModal();
+  setFiltersOpen(false);
+});
 
 function histSvg(history) {
   const pts = history.filter((h) => h.price != null);
@@ -470,6 +496,7 @@ function histSvg(history) {
 /* ---------------- tabs ---------------- */
 
 function switchTab(tab) {
+  setFiltersOpen(false);
   state.tab = tab;
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === tab));
   const main = document.querySelector('.main');
@@ -744,10 +771,11 @@ for (const inp of ['minPrice', 'maxPrice']) {
   $(inp).addEventListener('change', () => {
     state.minPrice = $('minPrice').value ? Number($('minPrice').value) : null;
     state.maxPrice = $('maxPrice').value ? Number($('maxPrice').value) : null;
+    updateFilterButton();
     loadItems(true);
   });
 }
-$('instockOnly').addEventListener('change', (e) => { state.instock = e.target.checked; loadItems(true); });
+$('instockOnly').addEventListener('change', (e) => { state.instock = e.target.checked; updateFilterButton(); loadItems(true); });
 $('sortSel').addEventListener('change', (e) => { state.sort = e.target.value; loadItems(true); });
 $('clearFilters').onclick = () => {
   state.sources = new Set(ALL_SOURCES);
@@ -757,9 +785,18 @@ $('clearFilters').onclick = () => {
   state.minPrice = state.maxPrice = null;
   $('minPrice').value = $('maxPrice').value = '';
   $('instockOnly').checked = false;
+  updateFilterButton();
   loadFacets();
   loadItems(true);
 };
+
+$('filterToggle').onclick = () => setFiltersOpen(true);
+$('filterClose').onclick = () => setFiltersOpen(false);
+$('filterDone').onclick = () => setFiltersOpen(false);
+$('sidebarBackdrop').onclick = () => setFiltersOpen(false);
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 900) setFiltersOpen(false);
+});
 
 $('tabs').addEventListener('click', (e) => {
   const t = e.target.closest('.tab');
