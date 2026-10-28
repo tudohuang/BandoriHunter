@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { InValue } from '@libsql/client';
 import { CATEGORIES } from '../src/core/categorize.js';
 import { db, getMeta, ready, ROOT, stats } from '../src/core/db.js';
 import { SOURCE_NAMES } from '../src/core/types.js';
@@ -48,16 +49,32 @@ await fs.rm(OUT_DIR, { recursive: true, force: true });
 await fs.mkdir(OUT_DIR, { recursive: true });
 
 const soldCutoff = new Date(Date.now() - SOLD_KEEP_DAYS * 86400_000).toISOString();
+// Turso 一次回傳幾十 MB 會被對方斷線：依 id 區段分批讀，每批失敗重試
+const SPAN = 5000;
+const maxId = Number((await db.execute('SELECT COALESCE(MAX(id), 0) m FROM items')).rows[0].m);
+async function spans(sql: string, args: InValue[] = []): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (let lo = 0; lo < Number(maxId); lo += SPAN) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        out.push(...((await db.execute({ sql, args: [...args, lo, lo + SPAN] })).rows as Record<string, unknown>[]));
+        break;
+      } catch (e) {
+        if (attempt >= 4) throw e;
+        console.warn(`[export] ${lo}~${lo + SPAN} 讀取失敗，重試（${(e as Error).message}）`);
+        await new Promise((r) => setTimeout(r, attempt * 3000));
+      }
+    }
+  }
+  return out;
+}
 const rows = (
-  await db.execute({
-    sql: "SELECT * FROM items WHERE status != 'soldout' OR last_seen >= ? ORDER BY id",
-    args: [soldCutoff],
-  })
-).rows.map((row) => plainRow(row as Record<string, unknown>));
+  await spans("SELECT * FROM items WHERE (status != 'soldout' OR last_seen >= ?) AND id > ? AND id <= ? ORDER BY id", [soldCutoff])
+).map((row) => plainRow(row));
 
 // 價格紀錄：只收「價格真的變過」的品項，壓成 [unix 秒, 價格] 陣列
 const histories = new Map<number, [number, number][]>();
-for (const r of (await db.execute('SELECT item_id, price, seen_at FROM price_history WHERE price IS NOT NULL ORDER BY item_id, seen_at')).rows) {
+for (const r of await spans('SELECT item_id, price, seen_at FROM price_history WHERE price IS NOT NULL AND item_id > ? AND item_id <= ? ORDER BY item_id, seen_at')) {
   const id = Number(r.item_id);
   const list = histories.get(id) ?? [];
   const price = Number(r.price);

@@ -44,12 +44,14 @@ jobs:
 
       # 掃站中途失敗也照樣匯出部署已經寫進資料庫的部分
       - name: Export static snapshot
+        id: export
         if: ${{ !cancelled() }}
         run: npx tsx scripts/export-static.mts
 
       # 公開站讀的是 public/snapshot，掃完不部署網站就不會更新。wrangler 只上傳內容有變的檔案
+      # 匯出失敗就不部署，否則會把沒有 snapshot 的空站推上去
       - name: Deploy to Cloudflare
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.export.outcome == 'success' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
