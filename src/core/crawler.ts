@@ -1,5 +1,5 @@
 import { getAdapters } from './adapters/index.js';
-import { computeTagFacets, getItem, getMeta, listWatches, markUnseenSold, setMeta, upsertMany } from './db.js';
+import { computeTagFacets, getItems, getMeta, listWatches, markUnseenSold, setMeta, upsertMany } from './db.js';
 import { DEFAULT_SWEEP, isRelevant, norm } from './keywords.js';
 import { notifyNewItems } from './notify.js';
 import type { Adapter, CrawlReport, CrawlSiteReport, ItemRow, RawItem, Source } from './types.js';
@@ -125,7 +125,7 @@ export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
     }
   });
 
-  const newItems = (await Promise.all(notifyIds.map((id) => getItem(id)))).filter(Boolean) as ItemRow[];
+  const newItems = await getItems(notifyIds);
 
   // 通知：非首次、非 quiet，比對關注關鍵字
   if (!opts.quiet && newItems.length) {
@@ -137,7 +137,7 @@ export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
   await setMeta('last_crawl', new Date().toISOString());
   await computeTagFacets(); // 預計算標籤統計，網頁端讀 meta 不掃全表
 
-  const allNew = (await Promise.all(allNewIds.map((id) => getItem(id)))).filter(Boolean) as ItemRow[];
+  const allNew = await getItems(allNewIds);
   return { startedAt, finishedAt: new Date().toISOString(), sites, newItems: allNew, baseline };
 }
 
@@ -166,7 +166,7 @@ export async function liveSearch(
     }),
   );
 
-  const items = (await Promise.all(ids.map((id) => getItem(id)))).filter(Boolean) as ItemRow[];
+  const items = await getItems(ids);
   // 依關鍵字過濾（各站搜尋寬鬆度不同，統一在本地把關）
   const toks = norm(keyword).split(' ').filter(Boolean);
   const filtered = items.filter((it) => toks.every((t) => it.title_norm.includes(t)));

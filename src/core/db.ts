@@ -176,6 +176,17 @@ export async function upsertMany(raws: RawItem[], touch = true): Promise<UpsertR
 export const upsertItem = async (raw: RawItem): Promise<UpsertResult> => (await upsertMany([raw]))[0];
 export const getItem = (id: number): Promise<ItemRow | undefined> => one('SELECT * FROM items WHERE id=?', [id]);
 
+/** 依序分批讀多筆（一次併發幾千個查詢會讓 Turso 直接斷線），保留傳入順序、略過不存在的 id */
+export async function getItems(ids: number[]): Promise<ItemRow[]> {
+  const byId = new Map<number, ItemRow>();
+  const uniq = [...new Set(ids)];
+  for (let i = 0; i < uniq.length; i += 200) {
+    const chunk = uniq.slice(i, i + 200);
+    for (const row of await all<ItemRow>(`SELECT * FROM items WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)) byId.set(n(row.id), row);
+  }
+  return ids.map((id) => byId.get(id)).filter((x): x is ItemRow => !!x);
+}
+
 export interface QueryOptions {
   /** 空白分隔 AND；「-詞」= 排除；比對標題與樂團/角色標籤 */
   q?: string;
@@ -205,8 +216,14 @@ export function parseQuery(q?: string): { include: string[]; exclude: string[] }
   };
 }
 
-const PREV_PRICE_SQL = `(SELECT ph.price FROM price_history ph WHERE ph.item_id = items.id AND ph.price IS NOT NULL
-  AND ph.price != items.price ORDER BY ph.seen_at DESC LIMIT 1)`;
+/**
+ * 「降價中」的上一個價格：近 30 天內才降、且現價低於最早記錄價格（漲回原價不算），否則 NULL。
+ * 與 public/app.js recentDropFrom 同定義。
+ */
+const PH = (cond: string, pick: string, order: string) =>
+  `(SELECT ${pick} FROM price_history ph WHERE ph.item_id = items.id AND ph.price IS NOT NULL ${cond} ORDER BY ph.seen_at ${order} LIMIT 1)`;
+const PREV_PRICE_SQL = `CASE WHEN ${PH('AND ph.price != items.price', 'ph.seen_at', 'DESC')} >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')
+  AND ${PH('', 'ph.price', 'ASC')} > items.price THEN ${PH('AND ph.price != items.price', 'ph.price', 'DESC')} END`;
 
 function whereOf(o: QueryOptions): { from: string; where: string; args: unknown[] } {
   const conds: string[] = [];

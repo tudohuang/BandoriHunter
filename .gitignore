@@ -7,3 +7,5 @@ data/
 .env
 .env.*
 public/snapshot/
+sc.txt
+.wrangler/

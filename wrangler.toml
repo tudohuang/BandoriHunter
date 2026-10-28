@@ -1,0 +1,8 @@
+# Cloudflare Workers + 靜態資源：GitHub Actions 掃完站後 `wrangler deploy` 上傳 public/
+name = "bandori-hunter"
+main = "worker/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[assets]
+directory = "./public"

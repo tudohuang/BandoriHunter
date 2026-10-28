@@ -162,6 +162,19 @@ async function snapshotMeta() {
   return snapshot.meta;
 }
 
+/**
+ * 「降價中」：現價是近 DROP_DAYS 天內才降下來的，且低於最早記錄的價格（漲回原價不算）。
+ * h = [[unix 秒, 價格], ...]（連續同價已合併）；與 scripts/export-static.mts、src/core/db.ts 同定義。
+ */
+const DROP_DAYS = 30;
+function recentDropFrom(h, price) {
+  if (h.length < 2 || price == null) return null;
+  const last = h[h.length - 1];
+  if (last[1] !== price || last[0] < Date.now() / 1000 - DROP_DAYS * 86400) return null;
+  const prev = h[h.length - 2][1];
+  return prev > price && h[0][1] > price ? prev : null;
+}
+
 /** 與 scripts/export-static.mts 的 URL_RULES 相同：可推回的網址快照不存 */
 const URL_RULES = {
   mercari: (id) => (id.startsWith('m') ? `https://jp.mercari.com/item/${id}` : `https://jp.mercari.com/shops/product/${id}`),
@@ -180,8 +193,7 @@ function prepItem(it) {
   it.adult ??= 0;
   it._n = snapNorm(it.title + ' ' + (it.series || ''));
   it._t = snapNorm(parseTags(it).join(' '));
-  const older = (it.h || []).filter((x) => x[1] !== it.price);
-  it.prev_price = older.length ? older[older.length - 1][1] : null;
+  it.prev_price = recentDropFrom(it.h || [], it.price);
   return it;
 }
 
