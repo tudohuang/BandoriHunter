@@ -37,6 +37,7 @@ const IMG_REFERERS: Record<string, string> = {
   'images.groobee.com': 'https://ec1.k-books.co.jp/',
   'static.mercdn.net': 'https://jp.mercari.com/',
   'assets.mercari-shops-static.com': 'https://jp.mercari.com/',
+  'item-shopping.c.yimg.jp': 'https://store.shopping.yahoo.co.jp/',
 };
 const imgCache = new Map<string, { type: string; body: Buffer }>();
 

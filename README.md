@@ -23,15 +23,16 @@ BanG Dream!（バンドリ）中古商品情報聚合工具 — 一個介面同�
 ## 部署架構
 
 ```
-GitHub Actions（每小時）
+GitHub Actions（每小時增量、每天 03:07 JST 完整掃站）
   crawl → Turso（爬蟲狀態庫）
-  export-static → public/snapshot/*.json（售完超過 90 天不輸出）
-  vercel deploy --prod → 公開站讀靜態快照（唯讀）
+  export-static → public/snapshot/*.json（依 id 分塊、檔名帶 hash；售完超過 90 天不輸出）
+  wrangler deploy → Cloudflare Workers 靜態資源（公開站讀快照，唯讀）
 ```
 
-需要的 GitHub Secrets：`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`
-（後兩個在本機 `npx vercel link` 後的 `.vercel/project.json` 裡）。Vercel 的 git 自動部署已在 `vercel.json` 關閉，一律由 Actions 部署；
-推到 master 也會觸發一次「只匯出＋部署、不掃站」。
+- 靜態檔由 Cloudflare 直接回，不經過 Worker；`worker/index.js` 只處理 `/img` 圖片代理（前端直連各站 CDN 失敗時才用）
+- 快取規則在 `public/_headers`（meta.json 不快取、分塊永久快取）
+- 需要的 GitHub Secrets：`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`CLOUDFLARE_API_TOKEN`（Edit Cloudflare Workers 範本）、`CLOUDFLARE_ACCOUNT_ID`
+- 推到 master 會觸發一次「只匯出＋部署、不掃站」；手動完整重掃：`gh workflow run crawl.yml -f full=true`
 
 GitHub 會停用 60 天沒有 commit 的 repo 的排程，workflow 每次跑完會呼叫 API 重新 enable 自己來避免。
 

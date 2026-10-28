@@ -43,21 +43,17 @@ jobs:
       - name: Export static snapshot
         run: npx tsx scripts/export-static.mts
 
-      # 公開站讀的是 public/snapshot，掃完不部署網站就不會更新
-      - name: Deploy to Vercel
+      # 公開站讀的是 public/snapshot，掃完不部署網站就不會更新。wrangler 只上傳內容有變的檔案
+      - name: Deploy to Cloudflare
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::warning::未設定 VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID，略過部署（公開站資料不會更新）"
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::未設定 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID，略過部署（公開站資料不會更新）"
             exit 0
           fi
-          npm i -g vercel@latest
-          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          npx --yes wrangler@4 deploy
 
       # GitHub 會把 60 天沒有 commit 的 repo 的排程停掉；每次跑完重新 enable 一次重置計時
       - name: Keepalive
