@@ -1,12 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "git": {
-    "deploymentEnabled": false
-  },
   "outputDirectory": "public",
-  "regions": [
-    "hnd1"
-  ],
+  "regions": ["hnd1"],
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
@@ -15,32 +10,14 @@
     }
   },
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/index"
-    },
-    {
-      "source": "/img",
-      "destination": "/api/index"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index" },
+    { "source": "/img", "destination": "/api/index" }
   ],
   "headers": [
     {
-      "source": "/snapshot/meta.json",
+      "source": "/snapshot/(.*)",
       "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=0, must-revalidate"
-        }
-      ]
-    },
-    {
-      "source": "/snapshot/items-(.*)",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=86400, immutable"
-        }
+        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800" }
       ]
     }
   ]

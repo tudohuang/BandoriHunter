@@ -2,10 +2,7 @@ name: crawl
 
 on:
   schedule:
-    - cron: '23 * * * *' # 每小時增量（UTC 分鐘 23，避開整點壅塞；GitHub 實際約 1~4 小時跑一次）
-    - cron: '7 18 * * *' # 每天 03:07 JST 完整掃站：補齊翻不到的舊品、把已售出/下架的メルカリ品項改成售完
-  push:
-    branches: [master] # 推程式碼時只重新匯出 + 部署，不掃站
+    - cron: '23 * * * *' # 每小時（UTC 分鐘 23，避開整點壅塞）
   workflow_dispatch:
     inputs:
       full:
@@ -17,17 +14,10 @@ concurrency:
   group: crawl
   cancel-in-progress: false
 
-permissions:
-  contents: read
-  actions: write # keepalive 用
-
 jobs:
   crawl:
     runs-on: ubuntu-latest
     timeout-minutes: 320
-    env:
-      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,33 +25,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-
       - name: Crawl all sites
-        if: github.event_name != 'push'
-        run: npx tsx src/cli/index.ts crawl ${{ (inputs.full || github.event.schedule == '7 18 * * *') && '--full' || '' }}
-
-      - name: Export static snapshot
-        run: npx tsx scripts/export-static.mts
-
-      # 公開站讀的是 public/snapshot，掃完不部署網站就不會更新
-      - name: Deploy to Vercel
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        run: |
-          if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::warning::未設定 VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID，略過部署（公開站資料不會更新）"
-            exit 0
-          fi
-          npm i -g vercel@latest
-          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-
-      # GitHub 會把 60 天沒有 commit 的 repo 的排程停掉；每次跑完重新 enable 一次重置計時
-      - name: Keepalive
-        if: github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/crawl.yml/enable" || true
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npx tsx src/cli/index.ts crawl ${{ inputs.full && '--full' || '' }}

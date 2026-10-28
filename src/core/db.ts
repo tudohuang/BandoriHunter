@@ -41,11 +41,7 @@ const DDL = [
 let readyP: Promise<unknown> | null = null;
 export const ready = (): Promise<unknown> =>
   (readyP ??= db.batch(DDL, 'write').then(() =>
-    Promise.all(
-      ['adult INTEGER NOT NULL DEFAULT 0', 'listed_at TEXT'].map((col) =>
-        db.execute(`ALTER TABLE items ADD COLUMN ${col}`).catch(() => {}),
-      ),
-    ),
+    db.execute('ALTER TABLE items ADD COLUMN adult INTEGER NOT NULL DEFAULT 0').catch(() => {}),
   ));
 
 const now = () => new Date().toISOString();
@@ -67,9 +63,9 @@ export interface UpsertResult {
 }
 
 const INSERT_SQL = `INSERT INTO items (source, source_id, url, title, title_norm, price, status, condition,
-  image, jan, shop_info, series, note, category, tags, adult, listed_at, first_seen, last_seen) VALUES (${'?,'.repeat(18)}?)`;
+  image, jan, shop_info, series, note, category, tags, adult, first_seen, last_seen) VALUES (${'?,'.repeat(17)}?)`;
 const UPDATE_SQL = `UPDATE items SET url=?, title=?, title_norm=?, price=?, status=?, condition=?, image=?,
-  jan=COALESCE(?, jan), shop_info=?, series=?, note=?, category=?, tags=?, adult=?, listed_at=COALESCE(?, listed_at), last_seen=? WHERE id=?`;
+  jan=COALESCE(?, jan), shop_info=?, series=?, note=?, category=?, tags=?, adult=?, last_seen=? WHERE id=?`;
 const HISTORY_SQL = 'INSERT INTO price_history(item_id, price, status, seen_at) VALUES (?,?,?,?)';
 
 function prepareItem(r: RawItem) {
@@ -115,32 +111,24 @@ function queueUpsert(
   ts: string,
   stmts: InStatement[],
   metas: UpsertMeta[],
-  touch: boolean,
-): UpsertResult | null {
+): void {
   const { r } = e;
   const ex = existing.get(existingKey(r.source, r.sourceId));
   if (!ex) {
-    stmts.push({ sql: INSERT_SQL, args: [r.source, r.sourceId, r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, r.listedAt ?? null, ts, ts] });
+    stmts.push({ sql: INSERT_SQL, args: [r.source, r.sourceId, r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ts] });
     metas.push({ kind: 'i', e });
-    return null;
+    return;
   }
-  // 不 touch 時價格與狀態都沒變就不寫（Turso 按寫入列數計費；last_seen 交給每日完整掃站更新）
-  if (!touch && ex.price === r.price && ex.status === r.status)
-    return { id: ex.id, isNew: false, priceChanged: false, oldPrice: ex.price };
-  stmts.push({ sql: UPDATE_SQL, args: [r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, r.listedAt ?? null, ts, ex.id] });
+  stmts.push({ sql: UPDATE_SQL, args: [r.url, r.title, e.tn, r.price, r.status, r.condition, r.image, r.jan, r.shopInfo, r.series, r.note, e.cat, e.tags, e.adult, ts, ex.id] });
   metas.push({ kind: 'u', e, ex });
   if (ex.price !== r.price || ex.status !== r.status) {
     stmts.push({ sql: HISTORY_SQL, args: [ex.id, r.price, r.status, ts] });
     metas.push({ kind: 'h' });
   }
-  return null;
 }
 
-/**
- * 批次 upsert：每批 = 1 次查既有 + 1~2 次 batch 寫入（Turso 遠端時把往返次數壓到最低）。
- * touch=false：價格/狀態沒變的既有品項完全不寫（增量掃站用，省寫入額度）。
- */
-export async function upsertMany(raws: RawItem[], touch = true): Promise<UpsertResult[]> {
+/** 批次 upsert：每批 = 1 次查既有 + 1~2 次 batch 寫入（Turso 遠端時把往返次數壓到最低） */
+export async function upsertMany(raws: RawItem[]): Promise<UpsertResult[]> {
   await ready();
   if (!raws.length) return [];
   const ts = now();
@@ -151,13 +139,10 @@ export async function upsertMany(raws: RawItem[], touch = true): Promise<UpsertR
 
   const stmts: InStatement[] = [];
   const metas: UpsertMeta[] = [];
-  const results: UpsertResult[] = [];
-  for (const e of items) {
-    const skipped = queueUpsert(e, existing, ts, stmts, metas, touch);
-    if (skipped) results.push(skipped);
-  }
-  const batch = stmts.length ? await db.batch(stmts, 'write') : [];
+  for (const e of items) queueUpsert(e, existing, ts, stmts, metas);
+  const batch = await db.batch(stmts, 'write');
 
+  const results: UpsertResult[] = [];
   const histories: InStatement[] = [];
   batch.forEach((br, i) => {
     const m = metas[i];
@@ -177,7 +162,6 @@ export const upsertItem = async (raw: RawItem): Promise<UpsertResult> => (await 
 export const getItem = (id: number): Promise<ItemRow | undefined> => one('SELECT * FROM items WHERE id=?', [id]);
 
 export interface QueryOptions {
-  /** 空白分隔 AND；「-詞」= 排除；比對標題與樂團/角色標籤 */
   q?: string;
   source?: Source[];
   category?: string[];
@@ -187,35 +171,16 @@ export interface QueryOptions {
   maxPrice?: number;
   sinceHours?: number;
   wished?: boolean;
-  /** 只要降價中的品項（現價低於上一個不同價格） */
-  drops?: boolean;
-  sort?: 'newest' | 'price_asc' | 'price_desc' | 'updated' | 'drop';
+  sort?: 'newest' | 'price_asc' | 'price_desc' | 'updated';
   limit?: number;
   offset?: number;
 }
 
-export type ItemWithPrev = ItemRow & { prev_price?: number | null };
-
-/** 搜尋字串 → 必含 / 排除 token（已 norm） */
-export function parseQuery(q?: string): { include: string[]; exclude: string[] } {
-  const toks = q ? norm(q).split(' ').filter(Boolean) : [];
-  return {
-    include: toks.filter((t) => !t.startsWith('-')),
-    exclude: toks.filter((t) => t.startsWith('-') && t.length > 1).map((t) => t.slice(1)),
-  };
-}
-
-const PREV_PRICE_SQL = `(SELECT ph.price FROM price_history ph WHERE ph.item_id = items.id AND ph.price IS NOT NULL
-  AND ph.price != items.price ORDER BY ph.seen_at DESC LIMIT 1)`;
-
-function whereOf(o: QueryOptions): { from: string; where: string; args: unknown[] } {
+export async function queryItems(o: QueryOptions): Promise<{ items: ItemRow[]; total: number }> {
   const conds: string[] = [];
   const args: unknown[] = [];
   const add = (sql: string, ...a: unknown[]) => (conds.push(sql), args.push(...a));
-  const { include, exclude } = parseQuery(o.q);
-  // tags 存原字串（未 norm），用 LOWER 讓 roselia / Roselia 都中
-  for (const t of include) add('(title_norm LIKE ? OR LOWER(tags) LIKE ?)', `%${t}%`, `%${t}%`);
-  for (const t of exclude) add('title_norm NOT LIKE ?', `%${t}%`);
+  for (const t of o.q ? norm(o.q).split(' ').filter(Boolean) : []) add('title_norm LIKE ?', `%${t}%`);
   if (o.source?.length) add(`source IN (${o.source.map(() => '?').join(',')})`, ...o.source);
   if (o.category?.length) add(`category IN (${o.category.map(() => '?').join(',')})`, ...o.category);
   if (o.tag) add('tags LIKE ?', `%${JSON.stringify(o.tag).slice(1, -1)}%`);
@@ -224,51 +189,18 @@ function whereOf(o: QueryOptions): { from: string; where: string; args: unknown[
   if (o.maxPrice != null) add('price <= ?', o.maxPrice);
   if (o.sinceHours != null) add('first_seen >= ?', new Date(Date.now() - o.sinceHours * 3600_000).toISOString());
   if (o.wished) conds.push('wished = 1');
-  if (o.drops) conds.push('prev_price > price');
-  // 降價需要相關子查詢算 prev_price，只有用到時才包一層
-  const from = o.drops || o.sort === 'drop' ? `(SELECT items.*, ${PREV_PRICE_SQL} AS prev_price FROM items)` : 'items';
-  return { from, where: conds.length ? 'WHERE ' + conds.join(' AND ') : '', args };
-}
-
-export async function queryItems(o: QueryOptions): Promise<{ items: ItemWithPrev[]; total: number }> {
-  const { from, where, args } = whereOf(o);
+  const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
   const order = {
     newest: 'ORDER BY first_seen DESC, id DESC',
     updated: 'ORDER BY last_seen DESC, id DESC',
     price_asc: 'ORDER BY price IS NULL, price ASC',
     price_desc: 'ORDER BY price IS NULL, price DESC',
-    drop: 'ORDER BY (prev_price - price) * 1.0 / prev_price DESC, id DESC',
   }[o.sort ?? 'newest'];
   const [total, items] = await Promise.all([
-    one(`SELECT COUNT(*) c FROM ${from} ${where}`, args),
-    all<ItemWithPrev>(`SELECT * FROM ${from} ${where} ${order} LIMIT ? OFFSET ?`, [...args, o.limit ?? 60, o.offset ?? 0]),
+    one(`SELECT COUNT(*) c FROM items ${where}`, args),
+    all<ItemRow>(`SELECT * FROM items ${where} ${order} LIMIT ? OFFSET ?`, [...args, o.limit ?? 60, o.offset ?? 0]),
   ]);
   return { items, total: n(total.c) };
-}
-
-export interface MarketStats {
-  instock: { count: number; min: number | null; median: number | null };
-  sold: { count: number; p25: number | null; median: number | null; p75: number | null };
-  /** 價格分布（給直方圖用）：[價格, 是否售完] */
-  points: [number, 0 | 1][];
-}
-
-const quantile = (sorted: number[], q: number) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : null);
-
-/** 行情：在售最低/中位數 + 已售（含メルカリ成交）四分位。前端快照模式用同一套算法 */
-export function marketFrom(rows: { price: number | null; status: string }[]): MarketStats {
-  const live = rows.filter((r) => r.price != null && r.status !== 'soldout').map((r) => r.price!).sort((a, b) => a - b);
-  const sold = rows.filter((r) => r.price != null && r.status === 'soldout').map((r) => r.price!).sort((a, b) => a - b);
-  return {
-    instock: { count: live.length, min: live[0] ?? null, median: quantile(live, 0.5) },
-    sold: { count: sold.length, p25: quantile(sold, 0.25), median: quantile(sold, 0.5), p75: quantile(sold, 0.75) },
-    points: rows.filter((r) => r.price != null).slice(0, 2000).map((r) => [r.price!, r.status === 'soldout' ? 1 : 0]),
-  };
-}
-
-export async function marketStats(o: QueryOptions): Promise<MarketStats> {
-  const { from, where, args } = whereOf({ ...o, status: undefined });
-  return marketFrom(await all(`SELECT price, status FROM ${from} ${where} LIMIT 20000`, args));
 }
 
 const countBy = async (col: string) =>
@@ -317,9 +249,6 @@ export async function similarItems(id: number, limit = 12): Promise<(ItemRow & {
 
 export const priceHistory = (itemId: number) =>
   all<{ price: number | null; status: string; seen_at: string }>('SELECT price, status, seen_at FROM price_history WHERE item_id=? ORDER BY seen_at', [itemId]);
-/** 完整掃站後：此站在 before 之前最後出現、仍標有貨的品項改為售完，回傳筆數 */
-export const markUnseenSold = async (source: Source, before: string): Promise<number> =>
-  (await exec("UPDATE items SET status='soldout' WHERE source=? AND status='instock' AND last_seen < ?", [source, before])).rowsAffected;
 export const setWished = (id: number, wished: boolean) => exec('UPDATE items SET wished=? WHERE id=?', [wished ? 1 : 0, id]);
 export const listWatches = () => all<{ id: number; keyword: string; created_at: string }>('SELECT * FROM watches ORDER BY id');
 export const addWatch = (keyword: string) => exec('INSERT OR IGNORE INTO watches(keyword, created_at) VALUES(?,?)', [keyword, now()]);

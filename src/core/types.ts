@@ -28,8 +28,6 @@ export interface RawItem {
   searchText?: string;
   /** 網站明確標示的 18+ 旗標（文字特徵判定另外在入庫時做） */
   adult?: boolean;
-  /** 該站的上架時間（有提供才填；first_seen 是本站收錄時間） */
-  listedAt?: string | null;
 }
 
 export interface SearchPage {
@@ -44,12 +42,8 @@ export interface Adapter {
   /** ms between requests to this site */
   minInterval: number;
   search(keyword: string, page: number): Promise<SearchPage>;
-  /** override sweep keywords for this site (e.g. K-Books only indexes official titles); full = 完整掃站 */
-  sweepKeywords?(defaults: string[], full: boolean): string[];
-  /** 完整掃站時每個關鍵字最多翻幾頁（預設 60） */
-  maxPages?: number;
-  /** 完整掃站能涵蓋該站全部相關品項：掃完沒再出現的「有貨」品項可視為已下架 */
-  completeSweep?: boolean;
+  /** override sweep keywords for this site (e.g. K-Books only indexes official titles) */
+  sweepKeywords?(defaults: string[]): string[];
 }
 
 export interface ItemRow {
@@ -73,7 +67,6 @@ export interface ItemRow {
   last_seen: string;
   wished: 0 | 1;
   adult: 0 | 1;
-  listed_at: string | null;
 }
 
 export interface CrawlSiteReport {
@@ -82,10 +75,6 @@ export interface CrawlSiteReport {
   added: number;
   priceChanged: number;
   errors: string[];
-  /** 有關鍵字翻到頁數上限還沒翻完 */
-  truncated?: boolean;
-  /** 完整掃站後標記為下架的品項數 */
-  delisted?: number;
 }
 
 export interface CrawlReport {

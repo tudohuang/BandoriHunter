@@ -6,4 +6,3 @@ data/
 .vercel/
 .env
 .env.*
-public/snapshot/

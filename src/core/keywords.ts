@@ -31,9 +31,8 @@ export const BANDS: TagDef[] = [
   { tag: 'RAISE A SUILEN', patterns: [/raise\s*a\s*suilen/, 'レイズアスイレン', /\bras\b/] },
   { tag: 'Morfonica', patterns: [/morfonica/, 'モルフォニカ', 'モニカ'] },
   // \b 必須：不然會命中 OhMyGod / JimmyGonzalez / MyGoldMask 這類洋樂專輯
-  { tag: 'MyGO!!!!!', patterns: [/\bmygo\b/, 'マイゴ', 'マイムジ', '迷子のバンド'] },
-  { tag: 'Ave Mujica', patterns: [/ave\s*mujica/, 'アヴェムジカ', 'アヴェ・ムジカ', 'アベムジカ', 'マイムジ'] },
-  { tag: 'CRYCHIC', patterns: [/crychic/, 'クライシック'] },
+  { tag: 'MyGO!!!!!', patterns: [/\bmygo\b/, 'マイゴ'] },
+  { tag: 'Ave Mujica', patterns: [/ave\s*mujica/, 'アヴェムジカ', 'アヴェ・ムジカ'] },
   { tag: 'Glitter*Green', patterns: [/glitter\s*[*＊]?\s*green/, 'グリッターグリーン'] },
   { tag: '夢限大みゅーたいぷ', patterns: ['夢限大みゅーたいぷ', '夢限大ミュータイプ', 'みゅーたいぷ'] },
 ];
@@ -51,7 +50,7 @@ const CHAR_DATA =
   'LAYER=和奏レイ|~layer;LOCK=朝日六花|六花;MASKING=佐藤ますき|masking;PAREO=鳰原れおな|pareo|パレオ;CHU²=チュチュ|chu2|chu²;' + // RAS
   '倉田ましろ|ましろ;桐ヶ谷透子|透子;広町七深|七深;二葉つくし;八潮瑠唯|瑠唯;' + // Morfonica
   '高松燈;千早愛音|愛音;要楽奈|楽奈;長崎そよ;椎名立希|立希;' + // MyGO!!!!!
-  '三角初華|初華|doloris|ドロリス;若葉睦|mortis|モーティス;八幡海鈴|海鈴|timoris|ティモリス;祐天寺にゃむ|にゃむ|amoris|アモーリス;豊川祥子|祥子|oblivionis|オブリビオニス'; // Ave Mujica
+  '三角初華|初華|doloris;若葉睦|mortis;八幡海鈴|海鈴|timoris;祐天寺にゃむ|にゃむ|amoris;豊川祥子|祥子|oblivionis'; // Ave Mujica
 
 export const CHARACTERS: TagDef[] = CHAR_DATA.split(';').map((entry) => {
   const [head, ...alts] = entry.split('|');
@@ -126,36 +125,12 @@ const FRANCHISE_RX: RegExp[] = [
   /garupa/,
   /ガールズバンドパーティ/,
   /girls\s*band\s*party/,
-  // 作品內專有名詞：MyGO×Ave Mujica 合同（マイムジ）、CRYCHIC、MyGO 卡包名「迷子のバンド」、sumimi
-  /マイムジ/,
-  /crychic|クライシック/,
-  /アベムジカ/,
-  /迷子のバンド/,
-  /\bsumimi\b/,
-  // 卡牌代號：ヴァイス BD/W125-071、Reバース BD/001B-124（BD/DVD 不會接數字）
-  /\bbd\/w\d{2,3}/,
-  /\bbd\/\d{3}b?-/,
 ];
 
-/**
- * 曲名／專輯名：商品標題常只寫曲名（迷跡波 アクスタ）。只收夠獨特、不會撞一般詞的；
- * 比對去空白版本（素晴らしき世界 でも どこにもない場所）。
- */
-const SONG_RX =
-  /迷跡波|端程山|詩超絆|碧天伴走|壱雫空|影色舞|迷星叫|潜在表明|焚音打|音一会|名無声|歌いましょう鳴らしましょう|killkiss|黒のバースデイ|素晴らしき世界でもどこにもない場所/;
-
-/** Ave Mujica 角色面具名：商品常只寫這個。モーティス 同時是ブロスタ角色，要排除 */
-const PERSONA_RX = /ドロリス|ティモリス|アモーリス|オブリビオニス|\b(doloris|timoris|amoris|oblivionis)\b/;
-const MORTIS_RX = /モーティス|\bmortis\b/;
-const MORTIS_NOISE_RX = /ブロスタ|brawl|ブロウルスターズ/;
-
-/** 人名中間常被插空白（高松 燈），字串比對時也比對去空白版本 */
 function matchDef(text: string, def: TagDef): boolean {
-  const compact = text.replace(/ /g, '');
   for (const p of def.patterns) {
     if (typeof p === 'string') {
-      const q = norm(p);
-      if (text.includes(q) || compact.includes(q)) return true;
+      if (text.includes(norm(p))) return true;
     } else {
       const rx = new RegExp(p.source, p.flags.includes('i') ? p.flags : p.flags + 'i');
       if (rx.test(text)) return true;
@@ -183,16 +158,11 @@ export function isAdultText(text: string): boolean {
 /** 硬否決：LV 包標題常被截斷在「バンドリ(エール)」處，字尾判不出來；邦邦沒有 LV 聯名 */
 const VETO_RX = /ヴィトン|vuitton/;
 
-/** 應援法被幾乎只有偶像/樂團粉絲周邊會出，搭配樂團名或角色暱稱（Afterglow、パレオ…）就足以判定 */
-const HAPPI_RX = /法被|はっぴ|ハッピ(?!ー)/;
-const HAPPI_NOISE_RX = /ガルパン|大洗/;
-
 /** 判定商品是否為 BanG Dream 相關 */
 export function isRelevant(text: string): boolean {
   const t = norm(text);
   if (VETO_RX.test(t)) return false;
   if (FRANCHISE_RX.some((rx) => rx.test(t))) return true;
-  if (HAPPI_RX.test(t) && !HAPPI_NOISE_RX.test(t) && [...BANDS, ...CHARACTERS].some((d) => matchDef(t, d))) return true;
   // 樂團名或明確角色全名也算（商品名可能只寫 Roselia）
   for (const b of BANDS) {
     if (b.tag === 'RAISE A SUILEN') {
@@ -208,13 +178,10 @@ export function isRelevant(text: string): boolean {
     if (b.tag === 'Morfonica' && t.includes('モニカ') && !t.includes('モルフォニカ') && !/morfonica/.test(t)) continue;
     if (matchDef(t, b)) return true;
   }
-  if (PERSONA_RX.test(t) || (MORTIS_RX.test(t) && !MORTIS_NOISE_RX.test(t))) return true;
-  const compact = t.replace(/ /g, '');
-  if (SONG_RX.test(compact)) return true;
   for (const c of CHARACTERS) {
-    // 只有全名（第一個 pattern）可獨立判相關，短暱稱太容易誤傷；3 字全名（高松燈、要楽奈）也算，空白不計
+    // 只有全名（第一個 pattern，字串且長度>=4）可獨立判相關，短暱稱太容易誤傷
     const first = c.patterns[0];
-    if (typeof first === 'string' && norm(first).length >= 3 && compact.includes(norm(first))) return true;
+    if (typeof first === 'string' && norm(first).length >= 4 && t.includes(norm(first))) return true;
   }
   // 可掃聲優的個人周邊視同相關（僅 sweep 名單；標籤用大牌名單不在此列，避免誤收非邦邦商品）
   if (!SEIYUU_NOISE_RX.test(t)) for (const s of SEIYUU) if (s.sweep && matchDef(t, s)) return true;

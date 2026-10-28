@@ -101,7 +101,6 @@ function itemQueryFrom(q: Request['query']): D.QueryOptions {
     maxPrice: q.maxPrice ? Number(q.maxPrice) : undefined,
     sinceHours: q.sinceHours ? Number(q.sinceHours) : undefined,
     wished: q.wished === '1',
-    drops: q.drops === '1',
     sort: (str(q.sort) as D.QueryOptions['sort']) ?? 'newest',
     limit: Math.min(Number(q.limit) || 60, 200),
     offset: Number(q.offset) || 0,
@@ -120,23 +119,11 @@ export function buildApp(): express.Express {
   app.use(express.json());
   if (!CLOUD) app.use(express.static(path.join(D.ROOT, 'public')));
 
-  // 雲端是公開網站：寫入類 API（願望清單、關注、設定、即時掃站）全部關掉，免得任何訪客都能改你的 webhook 或叫函式去爬站
-  if (CLOUD)
-    app.use(['/api/wishlist', '/api/watches', '/api/config', '/api/live', '/api/crawl'], (_req, res) =>
-      void res.status(403).json({ error: '公開版為唯讀；這個功能請在本機 npm run serve 使用' }),
-    );
-
   app.get('/img', h((req, res) => serveImage(String(req.query.u ?? ''), res)));
 
   app.get('/api/items', h(async (req, res) => {
     const data = await D.queryItems(itemQueryFrom(req.query));
     cachePublic(res, 30, 300, 600);
-    res.json(data);
-  }));
-
-  app.get('/api/market', h(async (req, res) => {
-    const data = await D.marketStats(itemQueryFrom(req.query));
-    cachePublic(res, 60, 300, 600);
     res.json(data);
   }));
 
