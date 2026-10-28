@@ -1,5 +1,5 @@
 import { getAdapters } from './adapters/index.js';
-import { computeTagFacets, getItem, getMeta, listWatches, setMeta, upsertMany } from './db.js';
+import { computeTagFacets, getItem, getMeta, listWatches, markUnseenSold, setMeta, upsertMany } from './db.js';
 import { DEFAULT_SWEEP, isRelevant, norm } from './keywords.js';
 import { notifyNewItems } from './notify.js';
 import type { Adapter, CrawlReport, CrawlSiteReport, ItemRow, RawItem, Source } from './types.js';
@@ -24,15 +24,17 @@ async function crawlSite(
   keywords: string[],
   forceFull: boolean | undefined,
   maxPagesOpt: number | undefined,
+  defaultKeywords: boolean,
   log: (msg: string) => void,
 ): Promise<{ report: CrawlSiteReport; newIds: number[]; baseline: boolean }> {
   // baseline 以「站」為單位：新加入的站第一次自動跑完整模式
   const baseline = (await getMeta(`baseline_${adapter.source}`)) !== '1';
   const full = forceFull ?? baseline;
-  const maxPages = maxPagesOpt ?? (full ? 60 : 5);
+  const maxPages = maxPagesOpt ?? (full ? (adapter.maxPages ?? 60) : 5);
   const report: CrawlSiteReport = { source: adapter.source, found: 0, added: 0, priceChanged: 0, errors: [] };
   const newIds: number[] = [];
-  const kws = adapter.sweepKeywords ? adapter.sweepKeywords(keywords) : keywords;
+  const kws = adapter.sweepKeywords ? adapter.sweepKeywords(keywords, full) : keywords;
+  const sweepStart = new Date().toISOString();
   const seenIds = new Set<string>();
 
   for (const kw of kws) {
@@ -50,7 +52,7 @@ async function crawlSite(
       for (const it of fresh) seenIds.add(it.sourceId);
       report.found += fresh.length;
 
-      const results = await upsertMany(fresh);
+      const results = await upsertMany(fresh, full);
       let pageNew = 0;
       for (const r of results) {
         if (r.isNew) {
@@ -69,9 +71,16 @@ async function crawlSite(
         staleStreak = pageNew === 0 ? staleStreak + 1 : 0;
         if (staleStreak >= 2) break;
       }
+      if (full && page >= maxPages) {
+        report.truncated = true;
+        log(`[${adapter.source}] 「${kw}」翻到 ${maxPages} 頁上限仍有下一頁`);
+      }
       page++;
     }
   }
+  // 預設關鍵字的完整掃站若完整無誤，之前有貨、這次沒再出現的就是被刪除/下架了
+  if (full && adapter.completeSweep && defaultKeywords && !report.truncated && !report.errors.length)
+    report.delisted = await markUnseenSold(adapter.source, sweepStart);
   if (baseline) await setMeta(`baseline_${adapter.source}`, '1');
   return { report, newIds, baseline };
 }
@@ -98,7 +107,7 @@ export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
 
   log(`開始掃站：${adapters.map((a) => a.source).join(', ')}`);
   const settled = await Promise.allSettled(
-    adapters.map((a) => crawlSite(a, keywords, opts.full, opts.maxPages, log)),
+    adapters.map((a) => crawlSite(a, keywords, opts.full, opts.maxPages, !opts.keywords?.length, log)),
   );
 
   const sites: CrawlSiteReport[] = [];

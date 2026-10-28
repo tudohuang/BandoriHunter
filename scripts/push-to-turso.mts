@@ -51,7 +51,7 @@ await remote.execute('DELETE FROM items');
 
 await pushTable('items', [
   'id', 'source', 'source_id', 'url', 'title', 'title_norm', 'price', 'status', 'condition', 'image',
-  'jan', 'shop_info', 'series', 'note', 'category', 'tags', 'adult', 'first_seen', 'last_seen', 'wished',
+  'jan', 'shop_info', 'series', 'note', 'category', 'tags', 'adult', 'listed_at', 'first_seen', 'last_seen', 'wished',
 ]);
 await pushTable('price_history', ['id', 'item_id', 'price', 'status', 'seen_at']);
 await pushTable('watches', ['id', 'keyword', 'created_at']);

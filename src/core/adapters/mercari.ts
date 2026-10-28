@@ -34,18 +34,49 @@ interface MercariItem {
   status: string; // ITEM_STATUS_ON_SALE | ITEM_STATUS_SOLD_OUT | ITEM_STATUS_TRADING
   thumbnails: string[];
   itemType: string; // ITEM_TYPE_MERCARI | ITEM_TYPE_BEYOND (Mercari Shops)
+  created: string; // unix 秒
   updated: string;
+  itemConditionId?: string;
+  shippingPayerId?: string; // 1=着払い 2=送料込み
+  shopName?: string;
 }
+
+const CONDITIONS: Record<string, string> = {
+  '1': '新品、未使用',
+  '2': '未使用に近い',
+  '3': '目立った傷や汚れなし',
+  '4': 'やや傷や汚れあり',
+  '5': '傷や汚れあり',
+  '6': '全体的に状態が悪い',
+};
 
 const MIN_INTERVAL = 2500;
 
-async function searchApi(keyword: string, pageToken: string): Promise<{ items: MercariItem[]; nextPageToken: string; numFound: number }> {
+/**
+ * メルカリ單一搜尋最多翻到 15000 件（125 頁）。完整掃站時把每個關鍵字切成價格帶各自翻，
+ * 熱門詞（MyGO、Ave Mujica 都超過上限）才抓得完。價格帶寫在關鍵字尾端，例：「MyGO〔¥1000-1999〕」。
+ */
+const PRICE_BANDS: [number, number | null][] = [[0, 999], [1000, 1999], [2000, 3499], [3500, 5999], [6000, 11999], [12000, null]];
+const BAND_RX = /〔¥(\d+)-(\d*)〕$/;
+const bandKeyword = (kw: string, [lo, hi]: [number, number | null]) => `${kw}〔¥${lo}-${hi ?? ''}〕`;
+
+function parseKeyword(raw: string): { keyword: string; priceMin?: number; priceMax?: number } {
+  const m = raw.match(BAND_RX);
+  if (!m) return { keyword: raw };
+  return {
+    keyword: raw.slice(0, m.index).trim(),
+    ...(Number(m[1]) ? { priceMin: Number(m[1]) } : {}),
+    ...(m[2] ? { priceMax: Number(m[2]) } : {}),
+  };
+}
+
+async function searchApi(rawKeyword: string, pageToken: string): Promise<{ items: MercariItem[]; nextPageToken: string; numFound: number }> {
   const body = {
     userId: '',
     pageSize: PAGE_SIZE,
     pageToken,
     searchSessionId: crypto.randomBytes(16).toString('hex'),
-    searchCondition: { keyword, sort: 'SORT_CREATED_TIME', order: 'ORDER_DESC' },
+    searchCondition: { ...parseKeyword(rawKeyword), sort: 'SORT_CREATED_TIME', order: 'ORDER_DESC' },
     defaultDatasets: ['DATASET_TYPE_MERCARI', 'DATASET_TYPE_BEYOND'],
     serviceFrom: 'suruga',
   };
@@ -82,12 +113,13 @@ function toRaw(it: MercariItem): RawItem {
     title: (it.name ?? '').replace(/\s+/g, ' ').trim(),
     price: it.price != null ? Number(it.price) : null,
     status: it.status === 'ITEM_STATUS_ON_SALE' ? 'instock' : 'soldout',
-    condition: '中古',
+    condition: CONDITIONS[it.itemConditionId ?? ''] ?? '中古',
     image: it.thumbnails?.[0] ?? null,
     jan: null,
-    shopInfo: isShop ? 'Mercari Shops' : null,
+    shopInfo: isShop ? `Mercari Shops${it.shopName ? '・' + it.shopName : ''}` : null,
     series: null,
-    note: null,
+    note: it.shippingPayerId === '1' ? '着払い（送料買家付）' : it.shippingPayerId === '2' ? '送料込み' : null,
+    listedAt: Number(it.created) ? new Date(Number(it.created) * 1000).toISOString() : null,
   };
 }
 
@@ -95,6 +127,13 @@ export const mercari: Adapter = {
   source: 'mercari',
   displayName: 'メルカリ',
   minInterval: MIN_INTERVAL,
+  maxPages: 125,
+  completeSweep: true,
+
+  sweepKeywords(defaults: string[], full: boolean): string[] {
+    // 增量掃描只看最新幾頁，不需要切價格帶
+    return full ? defaults.flatMap((kw) => PRICE_BANDS.map((b) => bandKeyword(kw, b))) : defaults;
+  },
 
   async search(keyword: string, page: number): Promise<SearchPage> {
     // pageToken 格式 "v1:<page-1>"；第 1 頁用空字串
