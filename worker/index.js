@@ -1,8 +1,13 @@
 /**
  * Cloudflare Worker：public/ 的靜態檔由 assets 直接回（不經過這支程式、不算請求額度），
- * 這裡只處理 /img 圖片代理（前端直連各站 CDN 失敗時的後備），其餘路徑 404。
- * 規則與 src/server/index.ts 的 serveImage 相同。
+ * 這裡只處理：
+ * - /img 圖片代理（前端直連各站 CDN 失敗時的後備；規則與 src/server/index.ts 的 serveImage 相同）
+ * - /api/subs 使用者的 Discord 通知訂閱（src/core/subs.ts，存在 Turso；secrets 由 GitHub Actions 設定）
  */
+import { createClient } from '@libsql/client/web';
+import { handleSubs } from '../src/core/subs.ts';
+
+let db = null;
 const IMG_REFERERS = {
   'content.bookoff.co.jp': 'https://shopping.bookoff.co.jp/',
   'img.lashinbang.com': 'https://shop.lashinbang.com/',
@@ -36,9 +41,15 @@ async function serveImage(u) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/img') return serveImage(url.searchParams.get('u') ?? '');
+    if (url.pathname === '/api/subs' || url.pathname.startsWith('/api/subs/')) {
+      if (!env.TURSO_DATABASE_URL) return Response.json({ error: '通知功能尚未設定' }, { status: 503 });
+      db ??= createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
+      const ip = request.headers.get('cf-connecting-ip') ?? '';
+      return handleSubs(request, db, ip, url.origin);
+    }
     if (url.pathname.startsWith('/api/'))
       return Response.json({ error: '公開版為唯讀，資料讀 /snapshot；完整功能請在本機 npm run serve 使用' }, { status: 404 });
     return new Response('Not found', { status: 404 });

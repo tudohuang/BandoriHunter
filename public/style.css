@@ -498,3 +498,21 @@ body[data-tab="compare"] .sentinel, body[data-tab="watch"] .sentinel, body[data-
 .mclose { background: color-mix(in srgb, var(--surface) 85%, transparent); box-shadow: 0 1px 4px rgba(0, 0, 0, .15); }
 input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* notify */
+body[data-tab="notify"] .sidebar, body[data-tab="notify"] .resultbar, body[data-tab="notify"] .grid, body[data-tab="notify"] .sentinel { display: none; }
+.steps { margin: 0 0 14px 20px; display: grid; gap: 4px; color: var(--dim); font-size: 13px; }
+.steps b { color: var(--text); font-weight: 600; }
+.field { display: grid; gap: 6px; margin-bottom: 14px; font-size: 13px; color: var(--dim); }
+.field input, .field textarea { width: 100%; height: 38px; }
+.field textarea { height: auto; }
+textarea {
+  font: inherit; color: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface); outline: none; resize: vertical; min-height: 110px; line-height: 1.6;
+}
+textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sub-card { background: var(--surface-2); border-radius: 9px; padding: 12px 14px; margin-bottom: 14px; display: grid; gap: 4px; }
+.hint-mono { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); overflow-wrap: anywhere; }
+.hint.small { font-size: 12px; margin-top: 14px; }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { border-color: var(--danger); background: var(--surface); }

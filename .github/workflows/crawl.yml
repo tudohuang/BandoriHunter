@@ -38,6 +38,8 @@ jobs:
 
       - name: Crawl all sites
         if: github.event_name != 'push'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: npx tsx src/cli/index.ts crawl ${{ (inputs.full || github.event.schedule == '7 18 * * *') && '--full' || '' }}
 
       # 掃站中途失敗也照樣匯出部署已經寫進資料庫的部分
@@ -57,6 +59,12 @@ jobs:
             exit 0
           fi
           npx --yes wrangler@4 deploy
+          # Worker 的通知訂閱 API 要連 Turso：非排程觸發（推程式、手動）時同步一次 secrets
+          if [ "$GITHUB_EVENT_NAME" != "schedule" ]; then
+            printf '{"TURSO_DATABASE_URL":"%s","TURSO_AUTH_TOKEN":"%s"}' "$TURSO_DATABASE_URL" "$TURSO_AUTH_TOKEN" > "$RUNNER_TEMP/worker-secrets.json"
+            npx --yes wrangler@4 secret bulk "$RUNNER_TEMP/worker-secrets.json"
+            rm -f "$RUNNER_TEMP/worker-secrets.json"
+          fi
 
       # GitHub 會把 60 天沒有 commit 的 repo 的排程停掉；每次跑完重新 enable 一次重置計時
       - name: Keepalive

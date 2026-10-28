@@ -6,6 +6,7 @@ import * as D from '../core/db.js';
 import { CATEGORIES } from '../core/categorize.js';
 import { SOURCE_NAMES, type CrawlReport, type Source, type Stock } from '../core/types.js';
 import { UA } from '../core/http.js';
+import { handleSubs, type SqlClient } from '../core/subs.js';
 
 export const CLOUD = !!process.env.VERCEL;
 
@@ -128,6 +129,22 @@ export function buildApp(): express.Express {
     );
 
   app.get('/img', h((req, res) => serveImage(String(req.query.u ?? ''), res)));
+
+  // 使用者通知訂閱：與 Cloudflare Worker 共用 handleSubs（Web Request/Response 介面）
+  app.all(['/api/subs', '/api/subs/*rest'], h(async (req, res) => {
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const r = await handleSubs(
+      new Request(origin + req.originalUrl, {
+        method: req.method,
+        headers: { authorization: req.get('authorization') ?? '', 'content-type': 'application/json' },
+        body: ['POST', 'PUT'].includes(req.method) ? JSON.stringify(req.body ?? {}) : undefined,
+      }),
+      D.db as unknown as SqlClient,
+      req.ip ?? '',
+      origin,
+    );
+    res.status(r.status).type('application/json').send(await r.text());
+  }));
 
   app.get('/api/items', h(async (req, res) => {
     const data = await D.queryItems(itemQueryFrom(req.query));

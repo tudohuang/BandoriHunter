@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { getMeta } from './db.js';
+import { getMeta, markSubFailed, markSubSent, matchesKeyword, type Subscription } from './db.js';
+import { postDiscord } from './subs.js';
 import type { ItemRow } from './types.js';
 import { SOURCE_NAMES } from './types.js';
 
@@ -32,10 +33,8 @@ $appid = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\power
   }
 }
 
-export async function discord(content: string, items: ItemRow[] = []): Promise<void> {
-  const webhook = await getMeta('discord_webhook');
-  if (!webhook) return;
-  const embeds = items.slice(0, 10).map((it) => ({
+const embedsOf = (items: ItemRow[]) =>
+  items.slice(0, 10).map((it) => ({
     title: it.title.slice(0, 240),
     url: it.url,
     color: SOURCE_COLORS[it.source] ?? 0x999999,
@@ -46,6 +45,12 @@ export async function discord(content: string, items: ItemRow[] = []): Promise<v
       { name: '分類', value: it.category, inline: true },
     ],
   }));
+
+export async function discord(content: string, items: ItemRow[] = []): Promise<void> {
+  // GitHub Actions 用 secret DISCORD_WEBHOOK_URL；本機用 `config discord_webhook` 存在 DB
+  const webhook = process.env.DISCORD_WEBHOOK_URL || (await getMeta('discord_webhook'));
+  if (!webhook) return;
+  const embeds = embedsOf(items);
   try {
     await fetch(webhook, {
       method: 'POST',
@@ -70,4 +75,39 @@ export async function notifyNewItems(matched: { keyword: string; items: ItemRow[
     );
     await discord(`🎸 **關注「${keyword}」有 ${items.length} 件新上架**`, items);
   }
+}
+
+export const SITE_URL = process.env.SITE_URL ?? 'https://bandori-hunter.bangdreamapp947.workers.dev';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 使用者訂閱（網站上自己填的 webhook）：每個訂閱一次掃站最多一則訊息，列出各關鍵字命中數、附最多 10 張商品卡。
+ * Discord 限流（429）照 retry_after 等；webhook 已刪除（401/404）累計失敗，3 次後移除訂閱。
+ */
+export async function notifySubscribers(subs: Subscription[], items: ItemRow[]): Promise<number> {
+  let sent = 0;
+  for (const sub of subs) {
+    const hits = sub.keywords.map((k) => ({ k, items: items.filter((it) => matchesKeyword(it, k)) })).filter((h) => h.items.length);
+    if (!hits.length) continue;
+    const matched = [...new Map(hits.flatMap((h) => h.items).map((it) => [it.id, it])).values()];
+    const content =
+      `🎸 **有 ${matched.length} 件新上架符合你的關注**：${hits.map((h) => `「${h.k}」${h.items.length} 件`).join('、')}
+` +
+      `看全部：${SITE_URL}/?tab=new&q=${encodeURIComponent(hits[0].k)}　管理通知：${SITE_URL}/?tab=notify`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await postDiscord(sub.webhook, { content: content.slice(0, 1900), embeds: embedsOf(matched) }).catch(() => null);
+      if (res?.status === 429) {
+        const wait = Number((await res.json().catch(() => ({})) as { retry_after?: number }).retry_after ?? 2);
+        await sleep(Math.min(30, wait) * 1000);
+        continue;
+      }
+      if (res?.ok) {
+        await markSubSent(sub.id);
+        sent++;
+      } else if (res && (res.status === 401 || res.status === 404)) await markSubFailed(sub.id);
+      break;
+    }
+    await sleep(400); // 對 Discord 客氣一點
+  }
+  return sent;
 }

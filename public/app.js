@@ -349,7 +349,7 @@ async function snapshotApi(path, opts) {
 
 function readUrl() {
   const p = new URLSearchParams(location.search);
-  if (p.get('tab') && (GRID_TABS.has(p.get('tab')) || p.get('tab') === 'compare')) state.tab = p.get('tab');
+  if (p.get('tab') && (GRID_TABS.has(p.get('tab')) || p.get('tab') === 'compare' || p.get('tab') === 'notify')) state.tab = p.get('tab');
   state.q = p.get('q') || '';
   if (p.get('src')) state.sources = new Set(p.get('src').split(',').filter((s) => ALL_SOURCES.includes(s)));
   if (!state.sources.size) state.sources = new Set(ALL_SOURCES);
@@ -535,6 +535,7 @@ function renderActiveFilters() {
     b.onclick = () => { clear(); refreshFilterUi(); loadItems(true); };
     box.appendChild(b);
   };
+  $('notifyBtn').hidden = !state.q.trim() || state.tab === 'wish';
   if (state.q) pill('「' + state.q + '」', () => { state.q = ''; $('searchInput').value = ''; });
   if (state.tag) pill(state.tag, () => (state.tag = null));
   for (const c of state.categories) pill(c, () => state.categories.delete(c));
@@ -853,9 +854,9 @@ function switchTab(tab) {
     return;
   }
   $('marketBar').hidden = true;
-  const tpl = { compare: 'compareTpl', watch: 'watchTpl', system: 'systemTpl' }[tab];
+  const tpl = { compare: 'compareTpl', notify: 'notifyTpl', watch: 'watchTpl', system: 'systemTpl' }[tab];
   main.appendChild($(tpl).content.cloneNode(true).firstElementChild);
-  ({ compare: initComparePanel, watch: initWatchPanel, system: initSystemPanel })[tab]();
+  ({ compare: initComparePanel, notify: initNotifyPanel, watch: initWatchPanel, system: initSystemPanel })[tab]();
   syncUrl();
 }
 
@@ -918,6 +919,88 @@ async function initSystemPanel() {
   const st = await api('/api/crawl/status');
   if (st.running && !crawlPoll) crawlPoll = setInterval(poll, 1500);
   poll();
+}
+
+/* ---------------- 通知訂閱 ---------------- */
+
+/** 訂閱 API 一律直接打伺服器（公開站是 Cloudflare Worker），不走快照 */
+async function subApi(method, path, body) {
+  const sub = readStore('bh_sub', null);
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(sub?.token ? { Authorization: 'Bearer ' + sub.token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || 'HTTP ' + res.status), { status: res.status });
+  return data;
+}
+const kwLines = () => $('subKeywords').value.split('\n').map((s) => s.trim()).filter(Boolean);
+let notifyPrefill = null;
+
+function updateNotifyBadge() {
+  $('notifyBadge').textContent = readStore('bh_sub', null) ? '開' : '';
+}
+
+async function initNotifyPanel() {
+  const show = (sub) => {
+    const active = !!sub;
+    $('subActive').hidden = !active;
+    $('subForm').hidden = active;
+    $('subTest').hidden = $('subDelete').hidden = !active;
+    $('subSave').textContent = active ? '儲存關鍵字' : '啟用通知';
+    if (active) {
+      $('subWebhook').textContent = sub.webhook;
+      $('subMeta').textContent = `建立於 ${fmtDate(sub.createdAt)}` + (sub.lastSentAt ? `・上次通知 ${timeAgo(sub.lastSentAt)}` : '・還沒有符合的新品');
+      $('subKeywords').value = sub.keywords.join('\n');
+    }
+    if (notifyPrefill && !kwLines().includes(notifyPrefill)) $('subKeywords').value = [...kwLines(), notifyPrefill].join('\n');
+    notifyPrefill = null;
+    const q = state.q.trim();
+    $('subAddQ').hidden = !q || kwLines().includes(q);
+    $('subAddQ').textContent = `加入目前搜尋「${q}」`;
+    updateNotifyBadge();
+  };
+  $('subAddQ').onclick = () => {
+    $('subKeywords').value = [...kwLines(), state.q.trim()].join('\n');
+    $('subAddQ').hidden = true;
+  };
+  const busy = async (btn, fn) => {
+    btn.disabled = true;
+    try { await fn(); } catch (e) { toastMsg(e.message); } finally { btn.disabled = false; }
+  };
+  $('subSave').onclick = () => busy($('subSave'), async () => {
+    const saved = readStore('bh_sub', null);
+    if (saved && $('subForm').hidden) {
+      show(await subApi('PUT', '/api/subs/' + saved.id, { keywords: kwLines() }));
+      toastMsg('已更新關鍵字');
+      return;
+    }
+    const r = await subApi('POST', '/api/subs', { webhook: $('subWebhookInput').value.trim(), keywords: kwLines() });
+    writeStore('bh_sub', { id: r.id, token: r.token });
+    show({ ...r, createdAt: new Date().toISOString(), lastSentAt: null });
+    toastMsg(r.replaced ? '已更新這個 Webhook 的設定，Discord 應該收到一則確認訊息' : '已啟用！Discord 應該收到一則確認訊息');
+  });
+  $('subTest').onclick = () => busy($('subTest'), async () => {
+    await subApi('POST', `/api/subs/${readStore('bh_sub', {}).id}/test`, {});
+    toastMsg('已送出測試通知');
+  });
+  $('subDelete').onclick = () => busy($('subDelete'), async () => {
+    await subApi('DELETE', '/api/subs/' + readStore('bh_sub', {}).id).catch((e) => { if (e.status !== 404) throw e; });
+    writeStore('bh_sub', null);
+    $('subKeywords').value = '';
+    show(null);
+    toastMsg('已取消通知');
+  });
+  const saved = readStore('bh_sub', null);
+  if (!saved) return show(null);
+  try {
+    show(await subApi('GET', '/api/subs/' + saved.id));
+  } catch (e) {
+    if (e.status === 404) writeStore('bh_sub', null); // 已失效（webhook 被刪、或在別處取消）
+    else toastMsg('讀取通知設定失敗：' + e.message);
+    show(null);
+  }
 }
 
 /* ---------------- 比價・行情 ---------------- */
@@ -1167,6 +1250,7 @@ function bindControls() {
     loadItems(true);
   };
   $('shareBtn').onclick = () => { syncUrl(); copyText(location.href, '已複製目前搜尋的連結'); };
+  $('notifyBtn').onclick = () => { notifyPrefill = state.q.trim(); switchTab('notify'); };
   $('filterToggle').onclick = () => setFiltersOpen(true);
   $('filterClose').onclick = () => setFiltersOpen(false);
   $('filterDone').onclick = () => setFiltersOpen(false);
@@ -1189,6 +1273,7 @@ function bindControls() {
   const deepItem = readUrl();
   $('searchInput').value = state.q;
   updateWishBadge();
+  updateNotifyBadge();
   initCoupon();
   bindControls();
   await loadFacets().catch((e) => toastMsg('讀取失敗：' + e.message));

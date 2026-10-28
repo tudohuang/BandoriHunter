@@ -41,6 +41,7 @@
     <button class="tab" data-tab="drops">降價中 <span class="tabbadge drop" id="dropBadge"></span></button>
     <button class="tab" data-tab="compare">比價・行情</button>
     <button class="tab" data-tab="wish">願望清單 <span class="tabbadge plain" id="wishBadge"></span></button>
+    <button class="tab" data-tab="notify">🔔 通知 <span class="tabbadge plain" id="notifyBadge"></span></button>
     <button class="tab local-only" data-tab="watch" hidden>關注通知</button>
     <button class="tab local-only" data-tab="system" hidden>資料與設定</button>
     <label class="switch danmaku-switch" title="最近收錄的商品以彈幕飄過畫面，點擊可看詳情">
@@ -114,6 +115,10 @@
           <span>篩選</span>
           <span class="filter-count" id="filterCount" hidden></span>
         </button>
+        <button id="notifyBtn" class="btn" type="button" title="這個搜尋有新品上架時通知我（Discord）" hidden>
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8a5 5 0 0110 0v3.5l1.5 2.5h-13L5 11.5zM8.5 16.5a1.6 1.6 0 003 0"/></svg>
+          <span>通知我</span>
+        </button>
         <button id="shareBtn" class="btn" type="button" title="複製目前搜尋條件的連結">
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 12l4-4M7 9.5l-1.8 1.8a2.8 2.8 0 004 4L11 13.5M13 10.5l1.8-1.8a2.8 2.8 0 00-4-4L9 6.5"/></svg>
           <span>分享</span>
@@ -155,6 +160,41 @@
     <div id="cmpMarket"></div>
     <div class="cmp-summary" id="cmpSummary"></div>
     <div class="cmp-list" id="cmpList"></div>
+  </div>
+</template>
+
+<!-- 通知訂閱（使用者自己的 Discord webhook） -->
+<template id="notifyTpl">
+  <div class="panel">
+    <div class="panel-head">
+      <h3>🔔 新品上架通知</h3>
+      <p class="hint">設定關鍵字後，網站每次更新（約 1〜4 小時一次）發現符合的新品，就會推到你的 Discord 頻道。</p>
+    </div>
+    <div id="subActive" hidden>
+      <div class="sub-card">
+        <div><span class="status instock">已啟用</span> <span class="hint-mono" id="subWebhook"></span></div>
+        <div class="hint" id="subMeta"></div>
+      </div>
+    </div>
+    <div id="subForm">
+      <ol class="steps">
+        <li>在 Discord 打開要收通知的頻道 → <b>編輯頻道</b>（齒輪）→ <b>整合</b> → <b>Webhook</b> → <b>新 Webhook</b></li>
+        <li>按 <b>複製 Webhook 網址</b>，貼到下面</li>
+      </ol>
+      <label class="field"><span>Discord Webhook 網址</span>
+        <input id="subWebhookInput" type="url" inputmode="url" autocomplete="off" placeholder="https://discord.com/api/webhooks/…">
+      </label>
+    </div>
+    <label class="field"><span>關鍵字（一行一個，最多 10 個；空白分隔＝全部都要有，「-詞」＝排除）</span>
+      <textarea id="subKeywords" rows="5" placeholder="Roselia 法被&#10;燈 アクスタ&#10;Ave Mujica -ポスター"></textarea>
+    </label>
+    <div class="btnrow">
+      <button id="subSave" class="btn btn-primary">啟用通知</button>
+      <button id="subAddQ" class="btn" hidden></button>
+      <button id="subTest" class="btn" hidden>傳送測試</button>
+      <button id="subDelete" class="btn btn-danger" hidden>取消通知</button>
+    </div>
+    <p class="hint small">Webhook 網址只用來發通知，不會公開；管理權限存在這個瀏覽器。換了裝置或清掉瀏覽器資料的話，貼上同一個 Webhook 重新設定即可（會覆蓋舊設定）。</p>
   </div>
 </template>
 

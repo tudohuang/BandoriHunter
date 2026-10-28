@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { ItemRow, RawItem, Source, Stock } from './types.js';
 import { categorize } from './categorize.js';
 import { extractTags, isAdultText, norm } from './keywords.js';
+import { SUBS_DDL } from './subs.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -36,6 +37,7 @@ const DDL = [
   'CREATE INDEX IF NOT EXISTS idx_ph_item ON price_history(item_id)',
   'CREATE TABLE IF NOT EXISTS watches (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)',
   'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)',
+  SUBS_DDL,
 ];
 
 let readyP: Promise<unknown> | null = null;
@@ -341,6 +343,31 @@ export const setWished = (id: number, wished: boolean) => exec('UPDATE items SET
 export const listWatches = () => all<{ id: number; keyword: string; created_at: string }>('SELECT * FROM watches ORDER BY id');
 export const addWatch = (keyword: string) => exec('INSERT OR IGNORE INTO watches(keyword, created_at) VALUES(?,?)', [keyword, now()]);
 export const removeWatch = (id: number) => exec('DELETE FROM watches WHERE id=?', [id]);
+
+export interface Subscription {
+  id: string;
+  webhook: string;
+  keywords: string[];
+}
+export const listSubscriptions = async (): Promise<Subscription[]> =>
+  (await all('SELECT id, webhook, keywords FROM subscriptions ORDER BY created_at')).map((r) => ({
+    id: String(r.id),
+    webhook: String(r.webhook),
+    keywords: JSON.parse(String(r.keywords)),
+  }));
+export const markSubSent = (id: string) => exec('UPDATE subscriptions SET last_sent_at=?, fail_count=0 WHERE id=?', [now(), id]);
+/** webhook 失效（404/401）：累計 3 次就刪掉訂閱 */
+export async function markSubFailed(id: string): Promise<void> {
+  await exec('UPDATE subscriptions SET fail_count = fail_count + 1 WHERE id=?', [id]);
+  await exec('DELETE FROM subscriptions WHERE id=? AND fail_count >= 3', [id]);
+}
+
+/** 關鍵字是否命中商品：與搜尋同規則（空白分隔 AND、「-詞」排除、標題或標籤） */
+export function matchesKeyword(item: Pick<ItemRow, 'title_norm' | 'tags'>, keyword: string): boolean {
+  const { include, exclude } = parseQuery(keyword);
+  const tags = item.tags.toLowerCase();
+  return include.length > 0 && include.every((t) => item.title_norm.includes(t) || tags.includes(t)) && !exclude.some((t) => item.title_norm.includes(t));
+}
 
 export async function stats() {
   const since72h = new Date(Date.now() - 72 * 3600_000).toISOString();

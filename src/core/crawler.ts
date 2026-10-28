@@ -1,7 +1,7 @@
 import { getAdapters } from './adapters/index.js';
-import { computeTagFacets, getItems, getMeta, listWatches, markUnseenSold, setMeta, upsertMany } from './db.js';
+import { computeTagFacets, getItems, getMeta, listSubscriptions, listWatches, markUnseenSold, matchesKeyword, setMeta, upsertMany } from './db.js';
 import { DEFAULT_SWEEP, isRelevant, norm } from './keywords.js';
-import { notifyNewItems } from './notify.js';
+import { notifyNewItems, notifySubscribers } from './notify.js';
 import type { Adapter, CrawlReport, CrawlSiteReport, ItemRow, RawItem, Source } from './types.js';
 
 export interface CrawlOptions {
@@ -85,16 +85,11 @@ async function crawlSite(
   return { report, newIds, baseline };
 }
 
-function matchesWatch(item: ItemRow, keyword: string): boolean {
-  const toks = norm(keyword).split(' ').filter(Boolean);
-  return toks.every((t) => item.title_norm.includes(t) || item.tags.includes(t));
-}
-
 function watchMatches(watches: { keyword: string }[], items: ItemRow[]) {
   return watches
     .map((w) => ({
       keyword: w.keyword,
-      items: items.filter((it) => matchesWatch(it, w.keyword)),
+      items: items.filter((it) => matchesKeyword(it, w.keyword)),
     }))
     .filter((m) => m.items.length);
 }
@@ -125,12 +120,18 @@ export async function crawl(opts: CrawlOptions = {}): Promise<CrawlReport> {
     }
   });
 
-  const newItems = await getItems(notifyIds);
+  // 完整掃站會翻到以前沒抓到的舊品，它們不是「新上架」：有上架時間的看 48 小時內，沒有的只在增量掃站通知
+  const recent = Date.now() - 48 * 3600_000;
+  const newItems = (await getItems(notifyIds)).filter((it) =>
+    it.listed_at ? Date.parse(it.listed_at) >= recent : !opts.full,
+  );
 
-  // 通知：非首次、非 quiet，比對關注關鍵字
+  // 通知：非首次、非 quiet，比對站長的關注關鍵字與使用者訂閱
   if (!opts.quiet && newItems.length) {
     const watches = await listWatches();
     await notifyNewItems(watchMatches(watches, newItems));
+    const sent = await notifySubscribers(await listSubscriptions(), newItems);
+    if (sent) log(`已通知 ${sent} 個訂閱`);
   }
 
   await setMeta('baseline_done', '1');
