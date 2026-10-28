@@ -53,7 +53,7 @@ program
     console.log('\n=== 掃站結果 ===');
     for (const s of report.sites)
       console.log(
-        `${SOURCE_NAMES[s.source].padEnd(12)} 相關 ${String(s.found).padStart(5)} 件 | 新增 ${String(s.added).padStart(4)} | 價變 ${String(s.priceChanged).padStart(4)}${s.errors.length ? ' | ⚠ ' + s.errors.join('; ') : ''}`,
+        `${SOURCE_NAMES[s.source].padEnd(12)} 相關 ${String(s.found).padStart(5)} 件 | 新增 ${String(s.added).padStart(4)} | 價變 ${String(s.priceChanged).padStart(4)}${s.delisted ? ` | 下架 ${s.delisted}` : ''}${s.truncated ? ' | ⚠ 有關鍵字翻到頁數上限' : ''}${s.errors.length ? ' | ⚠ ' + s.errors.join('; ') : ''}`,
       );
     if (report.baseline) console.log('\n首次建庫完成。之後的掃描會偵測新上架並通知。');
     await done();
