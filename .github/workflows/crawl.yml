@@ -29,8 +29,8 @@ jobs:
       TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
       TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -40,11 +40,14 @@ jobs:
         if: github.event_name != 'push'
         run: npx tsx src/cli/index.ts crawl ${{ (inputs.full || github.event.schedule == '7 18 * * *') && '--full' || '' }}
 
+      # 掃站中途失敗也照樣匯出部署已經寫進資料庫的部分
       - name: Export static snapshot
+        if: ${{ !cancelled() }}
         run: npx tsx scripts/export-static.mts
 
       # 公開站讀的是 public/snapshot，掃完不部署網站就不會更新。wrangler 只上傳內容有變的檔案
       - name: Deploy to Cloudflare
+        if: ${{ !cancelled() }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

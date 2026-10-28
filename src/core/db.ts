@@ -176,6 +176,17 @@ export async function upsertMany(raws: RawItem[], touch = true): Promise<UpsertR
 export const upsertItem = async (raw: RawItem): Promise<UpsertResult> => (await upsertMany([raw]))[0];
 export const getItem = (id: number): Promise<ItemRow | undefined> => one('SELECT * FROM items WHERE id=?', [id]);
 
+/** 依序分批讀多筆（一次併發幾千個查詢會讓 Turso 直接斷線），保留傳入順序、略過不存在的 id */
+export async function getItems(ids: number[]): Promise<ItemRow[]> {
+  const byId = new Map<number, ItemRow>();
+  const uniq = [...new Set(ids)];
+  for (let i = 0; i < uniq.length; i += 200) {
+    const chunk = uniq.slice(i, i + 200);
+    for (const row of await all<ItemRow>(`SELECT * FROM items WHERE id IN (${chunk.map(() => '?').join(',')})`, chunk)) byId.set(n(row.id), row);
+  }
+  return ids.map((id) => byId.get(id)).filter((x): x is ItemRow => !!x);
+}
+
 export interface QueryOptions {
   /** 空白分隔 AND；「-詞」= 排除；比對標題與樂團/角色標籤 */
   q?: string;
