@@ -71,9 +71,10 @@ for (const row of rows) {
   if (h && h.length > 1) {
     row.h = h.slice(-HISTORY_MAX);
     withHistory++;
-    // 與前端 prepItem 同定義：上一個不同的價格高於現價
-    const older = h.filter((x) => x[1] !== row.price);
-    if (row.status === 'instock' && older.length && older.at(-1)![1] > Number(row.price)) dropsInstock++;
+    // 與前端 recentDropFrom 同定義：近 30 天內降下來、且低於最早記錄價格
+    const last = h.at(-1)!;
+    const recent = last[1] === Number(row.price) && last[0] >= Date.now() / 1000 - 30 * 86400;
+    if (row.status === 'instock' && recent && h.at(-2)![1] > last[1] && h[0][1] > last[1]) dropsInstock++;
   }
 }
 // 分頁徽章直接放 meta，前端不用為了算數字下載全部分塊

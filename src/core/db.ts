@@ -216,8 +216,14 @@ export function parseQuery(q?: string): { include: string[]; exclude: string[] }
   };
 }
 
-const PREV_PRICE_SQL = `(SELECT ph.price FROM price_history ph WHERE ph.item_id = items.id AND ph.price IS NOT NULL
-  AND ph.price != items.price ORDER BY ph.seen_at DESC LIMIT 1)`;
+/**
+ * 「降價中」的上一個價格：近 30 天內才降、且現價低於最早記錄價格（漲回原價不算），否則 NULL。
+ * 與 public/app.js recentDropFrom 同定義。
+ */
+const PH = (cond: string, pick: string, order: string) =>
+  `(SELECT ${pick} FROM price_history ph WHERE ph.item_id = items.id AND ph.price IS NOT NULL ${cond} ORDER BY ph.seen_at ${order} LIMIT 1)`;
+const PREV_PRICE_SQL = `CASE WHEN ${PH('AND ph.price != items.price', 'ph.seen_at', 'DESC')} >= strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')
+  AND ${PH('', 'ph.price', 'ASC')} > items.price THEN ${PH('AND ph.price != items.price', 'ph.price', 'DESC')} END`;
 
 function whereOf(o: QueryOptions): { from: string; where: string; args: unknown[] } {
   const conds: string[] = [];
